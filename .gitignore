@@ -1,0 +1,25 @@
+# Real job criteria — never commit; copy from specs/profile.example.yaml
+profile.yaml
+
+# Secrets (Adzuna app id/key, etc.)
+.env
+
+# Run artifacts
+/digests/
+/state/
+*.run.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Loop control
+STOP
+
+# OS
+.DS_Store

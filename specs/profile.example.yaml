@@ -1,0 +1,72 @@
+# profile.example.yaml
+# Copy this to `profile.yaml` and fill in the blanks. This file is the single knob that
+# controls what the tool searches for, what it filters out, and how it ranks survivors.
+# Everyday tuning happens HERE, not in code. (Values below are illustrative placeholders.)
+
+identity:
+  target_titles:
+    - "Senior Software Engineer"
+    - "Staff Engineer"
+    - "Engineering Manager"
+  target_skills:
+    - "TypeScript"
+    - "React"
+    - "Node.js"
+    - "AWS"
+    - "system design"
+  target_seniority: "senior"        # intern|junior|mid|senior|staff|lead|principal|manager|director
+
+queries:
+  keywords:
+    - "software engineer"
+    - "full stack"
+  locations:
+    - "Remote Australia"
+    - "Remote"
+  max_results_per_query: 50
+
+hard_requirements:                  # any failure => listing is dropped (never shown)
+  # --- Location policy: REMOTE ONLY, and NOT tied to Sydney ---------------
+  remote_policy: "remote_only"      # remote_only | hybrid_ok | onsite_ok | any
+  exclude_locations:                # drop roles based in any of these, even if labelled remote
+    - "Sydney"
+  locations_allowed: []             # [] = any location is fine PROVIDED remote_policy passes
+                                    #      and the role is not in exclude_locations.
+                                    #      Populate to positively restrict to certain places.
+  min_seniority: "mid"
+  max_seniority: null
+  salary_floor: 160000
+  salary_currency: "AUD"
+  keep_unknown_salary: true         # keep listings that don't state salary
+  exclude_keywords:
+    - "unpaid"
+    - "security clearance"
+    - "PHP"
+  max_age_days: 21
+
+preferences:                        # soft signals that influence ranking, not filtering
+  preferred_locations:
+    - "Sydney CBD"
+    - "Remote Australia"
+  salary_target: 200000
+  preferred_companies:
+    - "Atlassian"
+    - "Canva"
+  preferred_industries:
+    - "developer tools"
+    - "SaaS"
+  avoid_industries:
+    - "gambling"
+    - "defense"
+
+weights:                            # relative importance in the 0-100 score; 0 disables
+  skill_match: 30
+  seniority_fit: 20
+  compensation: 20
+  location_fit: 15
+  company_signal: 10
+  recency: 5
+
+output:
+  display_threshold: 55             # hide scored results below this (0-100)
+  format: "both"                    # markdown | html | both
