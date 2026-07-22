@@ -2,71 +2,78 @@
 # Copy this to `profile.yaml` and fill in the blanks. This file is the single knob that
 # controls what the tool searches for, what it filters out, and how it ranks survivors.
 # Everyday tuning happens HERE, not in code. (Values below are illustrative placeholders.)
+# Validated against the schema in specs/03-data-model.md on load — typos fail loud.
 
 identity:
-  target_titles:
-    - "Senior Software Engineer"
-    - "Staff Engineer"
-    - "Engineering Manager"
-  target_skills:
+  target_skills:                    # count toward the skill_match score component
     - "TypeScript"
     - "React"
     - "Node.js"
     - "AWS"
     - "system design"
-  target_seniority: "senior"        # intern|junior|mid|senior|staff|lead|principal|manager|director
+  target:                           # one entry per track I'd accept; scoring measures
+    - track: "ic"                   #   distance from these on the listing's own track
+      level: "senior"               # ic: intern|junior|mid|senior|staff|principal
+    - track: "management"
+      level: "manager"              # management: manager|senior_manager|director|vp
 
-queries:
+queries:                            # the ONLY source of search terms (titles go here too)
   keywords:
-    - "software engineer"
+    - "senior software engineer"
+    - "staff engineer"
+    - "engineering manager"
     - "full stack"
   locations:
     - "Remote Australia"
     - "Remote"
   max_results_per_query: 50
+  max_requests_per_run: 100         # hard cap; run truncates (and says so) rather than exceed
 
-hard_requirements:                  # any failure => listing is dropped (never shown)
+hard_requirements:                  # any failure => listing dropped; UNKNOWN data => kept & marked
   # --- Location policy: REMOTE ONLY, and NOT tied to Sydney ---------------
-  remote_policy: "remote_only"      # remote_only | hybrid_ok | onsite_ok | any
+  remote_policy: "remote_only"      # remote_only | hybrid_ok | onsite_ok | any (defined in 02 §Stage 4)
   exclude_locations:                # drop roles based in any of these, even if labelled remote
     - "Sydney"
   locations_allowed: []             # [] = any location is fine PROVIDED remote_policy passes
                                     #      and the role is not in exclude_locations.
                                     #      Populate to positively restrict to certain places.
-  min_seniority: "mid"
-  max_seniority: null
-  salary_floor: 160000
+  seniority:                        # per-track bounds; delete a track to disallow it entirely
+    ic:         { min: "mid", max: null }
+    management: { min: "manager", max: "director" }
+  salary_floor: 160000              # annualized comparison; null = no floor
   salary_currency: "AUD"
-  keep_unknown_salary: true         # keep listings that don't state salary
-  exclude_keywords:
-    - "unpaid"
-    - "security clearance"
-    - "PHP"
+  fx_rates:                         # pinned rates INTO AUD; currencies not listed => salary "unknown"
+    USD: 1.50
+    NZD: 0.93
+  keep_unknown_salary: true         # keep listings with no (comparable) salary
+  exclude_employment:               # employment types to drop; unknown employment is kept
+    - "internship"
+  exclude_keywords:                 # word-boundary, case-insensitive, scoped deal-breakers
+    - { term: "unpaid",             scope: "requirements" }   # requirements = title + description
+    - { term: "security clearance", scope: "requirements" }
+    - { term: "PHP",                scope: "title" }          # title-only: a passing mention is fine
   max_age_days: 21
 
 preferences:                        # soft signals that influence ranking, not filtering
-  preferred_locations:
-    - "Sydney CBD"
-    - "Remote Australia"
+  preferred_locations:              # (Sydney CBD removed: Sydney-based roles are hard-excluded
+    - "Remote Australia"            #  above, so a Sydney preference could never apply)
   salary_target: 200000
   preferred_companies:
     - "Atlassian"
     - "Canva"
-  preferred_industries:
-    - "developer tools"
-    - "SaaS"
-  avoid_industries:
-    - "gambling"
-    - "defense"
+  # industry / company-size preferences: cut from v1 (no source provides the data) —
+  # see specs/04-technical-plan.md §Decisions
 
-weights:                            # relative importance in the 0-100 score; 0 disables
-  skill_match: 30
-  seniority_fit: 20
-  compensation: 20
+weights:                            # relative importance; 0 disables a component.
+  skill_match: 30                   # NOTE: score = 100 × Σ(w·sub)/Σ(w) over ACTIVE weights,
+  seniority_fit: 20                 #   so zeroing one rescales the rest — recheck
+  compensation: 20                  #   output.display_threshold after weight changes.
   location_fit: 15
   company_signal: 10
   recency: 5
 
 output:
   display_threshold: 55             # hide scored results below this (0-100)
+  max_shown: 25                     # cap on the "New this run" section
+  show_previously_seen: true        # keep prior shortlists reviewable in a second section
   format: "both"                    # markdown | html | both

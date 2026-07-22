@@ -4,35 +4,59 @@ Three core shapes drive the whole tool: the **JobListing** (what comes in), the 
 (what I want — the config that makes "filter" and "score" concrete), and the **ScoredResult**
 (what goes out). Types are shown language-neutrally; the implementation picks concrete types.
 
+Field annotations: **req** = required (validation fails if absent), everything else optional with
+the shown default. The profile is validated against this schema on load — unknown keys and type
+mismatches are hard errors ("fail loud on typos").
+
 ---
+
+## Seniority: two tracks
+
+Seniority is modeled as a **track + level**, because IC and management ladders aren't comparable
+(is "manager" above "principal"? — the model refuses the question):
+
+```yaml
+track: enum(ic, management)
+# ordered within each track:
+#   ic:         intern < junior < mid < senior < staff < principal
+#   management: manager < senior_manager < director < vp
+```
+
+Filters and scoring compare levels **within a track only**. A profile may target both tracks
+(e.g. Staff Engineer *and* Engineering Manager) with independent bounds, or disable a track.
 
 ## JobListing (canonical, post-normalization)
 
 ```yaml
-id:            string        # stable hash of (company + title + primary_location); the dedupe key
-title:         string
-company:       string
+id:            string        # req; stable hash of the normalized identity key (see notes below)
+content_hash:  string        # req; hash of (title, salary min/max/currency/period, location.raw,
+                             #      description) — detects material changes; excludes volatile
+                             #      fields (sources[], posted_at, first_seen_at)
+title:         string        # req
+company:       string        # req
 location:
-  raw:         string        # as posted, e.g. "Sydney NSW (Hybrid)"
+  raw:         string        # req; as posted, e.g. "Sydney NSW (Hybrid)"
   city:        string | null
   region:      string | null
-  country:     string | null # ISO where possible
-  is_remote:   boolean
+  country:     string | null # ISO 3166-1 alpha-2 where possible
+  is_remote:   boolean       # req (false when unstated)
 salary:
   min:         number | null
   max:         number | null
   currency:    string | null # ISO 4217, e.g. AUD, USD
   period:      enum(year, month, day, hour) | null
   raw:         string | null
-seniority:     enum(intern, junior, mid, senior, staff, lead, principal, manager, director) | null
+seniority:                   # inferred — see 02 §Seniority inference; null = unknown
+  track:       enum(ic, management) | null
+  level:       string | null # a level from the track's ordered list above
 employment:    enum(full_time, part_time, contract, temp, internship) | null
-description:   string        # plain text, HTML stripped
+description:   string        # req; plain text, HTML stripped
 posted_at:     date | null
-sources:                     # ≥1; multiple after dedupe merges cross-posts
+sources:                     # req, ≥1; multiple after dedupe merges cross-posts
   - name:      string        # e.g. "adzuna"
     url:       string
     source_id: string        # the source's own id for this posting
-first_seen_at: date          # when this tool first ingested it
+first_seen_at: date          # req; when this tool first ingested it
 ```
 
 ## Profile (the user's criteria — see `profile.example.yaml`)
@@ -42,66 +66,83 @@ filters), and **preferences + weights** (how to score survivors).
 
 ```yaml
 identity:
-  target_titles:   [string]      # roles I'd take, used to build source queries
-  target_skills:   [string]      # skills that count toward keyword match
-  target_seniority: string       # my target level; scoring measures distance from this
+  target_skills:    [string]     # req; skills that count toward keyword match
+  target:                        # req; one entry per track I'd accept (≥1)
+    - track:  enum(ic, management)
+      level:  string             # my target level on that track; scoring measures distance
 
-queries:                          # cartesian product of terms x locations, per source
-  keywords:        [string]
-  locations:       [string]       # human location strings, e.g. "Sydney", "Remote AU"
-  max_results_per_query: number
+queries:                         # queries.keywords is the ONLY source of search terms
+  keywords:        [string]      # req; e.g. titles and phrases to search sources for
+  locations:       [string]      # req; human location strings, e.g. "Sydney", "Remote AU"
+  max_results_per_query: number  # default 50
+  max_requests_per_run:  number  # default 100; hard cap enforced by the runner (see 02 §Stage 1)
 
-hard_requirements:                # STAGE 4 — any failure drops the listing
-  remote_policy:     enum(remote_only, hybrid_ok, onsite_ok, any)
-  exclude_locations: [string]     # drop roles based here even if labelled remote (e.g. Sydney)
-  locations_allowed: [string]     # [] = anywhere (subject to remote_policy + exclude_locations)
-  min_seniority:     string
-  max_seniority:     string | null
-  salary_floor:      number
-  salary_currency:   string
-  keep_unknown_salary: boolean    # true = don't drop listings with no salary
-  exclude_keywords:  [string]     # deal-breakers
-  max_age_days:      number
+hard_requirements:               # STAGE 4 — any failure drops the listing; unknown fields KEEP
+  remote_policy:     enum(remote_only, hybrid_ok, onsite_ok, any)   # defined in 02 §Stage 4
+  exclude_locations: [string]    # drop roles based here EVEN IF labelled remote (e.g. Sydney);
+                                 #   matched against parsed city/region/country, exact, case-insensitive
+  locations_allowed: [string]    # [] = anywhere (subject to remote_policy + exclude_locations);
+                                 #   non-empty = positively restrict to these places; same matching
+  seniority:                     # per-track bounds; omit a track to disallow it entirely
+    ic:         {min: string, max: string | null} | null
+    management: {min: string, max: string | null} | null
+  salary_floor:      number | null   # null = no floor
+  salary_currency:   string          # req if salary_floor set; ISO 4217
+  fx_rates:          map<string, number>   # pinned rates INTO salary_currency, e.g. {USD: 1.5};
+                                           # currencies absent here are treated as unknown salary
+  keep_unknown_salary: boolean     # default true — don't drop listings with no comparable salary
+  exclude_employment: [enum]       # default []; e.g. [contract, internship]
+  exclude_keywords:                # deal-breakers; word-boundary, case-insensitive, scoped
+    - term:  string
+      scope: enum(title, requirements)   # default requirements (= title + description)
+  max_age_days:      number        # default 30
 
-preferences:                      # STAGE 5 — soft scoring inputs
+preferences:                     # STAGE 5 — soft scoring inputs
   preferred_locations: [string]
-  salary_target:       number
+  salary_target:       number | null
   preferred_companies: [string]
-  preferred_industries:[string]
-  avoid_industries:    [string]
+  # NOTE: industry / company-size preferences are cut from v1 — no configured source provides
+  # that data. Reintroduce only alongside an enrichment source (see 04 §Later).
 
-weights:                          # STAGE 5 — must be tunable; 0 disables a component
-  skill_match:   number
-  seniority_fit: number
-  compensation:  number
-  location_fit:  number
-  company_signal:number
-  recency:       number
+weights:                         # STAGE 5 — relative; 0 disables a component; normalized over
+  skill_match:    number         #   the ACTIVE set (see 02 §Stage 5 normalization rule)
+  seniority_fit:  number
+  compensation:   number
+  location_fit:   number
+  company_signal: number
+  recency:        number
 
 output:
-  display_threshold: number       # hide scored results below this (0–100)
-  format:            enum(markdown, html, both)
+  display_threshold:    number   # default 0; hide scored results below this (0–100)
+  max_shown:            number   # default 25; cap on "New this run" section
+  show_previously_seen: boolean  # default true; render the "Previously shown" section
+  format:               enum(markdown, html, both)   # default markdown
 ```
 
 ## ScoredResult (post-scoring, what the digest renders)
 
 ```yaml
 listing:        JobListing
-score:          number            # 0–100, weighted sum normalized
-components:                       # one per active weight
+score:          number            # 0–100 = 100 × Σ(wᵢ·subᵢ)/Σ(wᵢ) over active weights
+components:                       # one per active (non-zero) weight
   - name:       string            # e.g. "skill_match"
-    raw:        number            # 0–1 sub-score
+    sub:        number            # 0–1 sub-score; 0.5 = neutral (unknown data)
     weight:     number
     reason:     string            # human-readable, e.g. "5/8 target skills present"
 summary_reason: string            # single line shown in the digest
-rank:           number            # 1 = best
+rank:           number            # 1 = best; ties: newer first, then id
+unknown_flags:  [string]          # e.g. ["level unclear", "remote scope unclear"]
 ```
 
 ## Run state (persisted between runs)
 
 ```yaml
-seen_ids:       [string]          # listing ids already shown; drives freshness filter
-dismissed_ids:  [string]          # ids I explicitly rejected; never re-surface
+schema_version: number            # bump on breaking change; loader migrates or fails loud
+seen:                             # replaces bare id list — hash enables change detection
+  - id:            string
+    content_hash:  string         # as last shown; differs now => "materially changed" => new again
+    last_shown_at: date
+dismissed_ids:  [string]          # via `jobhunter dismiss`; never re-surface, survives content changes
 last_run_at:    date
 ```
 
@@ -111,21 +152,34 @@ last_run_at:    date
 run_at:            date
 sources_used:      [string]
 sources_failed:    [ {name, error} ]
+requests_made:     number
+truncated:         boolean       # true if max_requests_per_run cut ingestion short
 ingested_count:    number
 after_dedupe:      number
 dropped:                         # the filter tally, for debugging criteria
   by_location:     number
   by_seniority:    number
   by_salary:       number
+  by_employment:   number
   by_keyword:      number
   by_age:          number
-  already_seen:    number
-shown_count:       number
+  dismissed:       number
+below_threshold:   number        # passed everything, hidden by display_threshold
+shown_new:         number
+shown_previous:    number
+active_weights:    map<string, number>   # so threshold changes are interpretable
 ```
 
 ## Notes on identity & dedupe
 
-- `id` must be **stable across runs** so freshness/dismissal work — derive it from normalized,
-  lowercased, whitespace-collapsed (company + title + city/country), not from volatile fields like URL or posted date.
+- `id` must be **stable across runs** so seen/dismissed state works — derive it from the
+  normalized identity key: lowercased, whitespace-collapsed, punctuation-stripped
+  `(company + title + city|country)`, with title decorations stripped per the rule table
+  (`Sr./Snr → senior`, trailing parenthesized team qualifiers removed). Fully-remote listings
+  with no city use `(company + title + country|"remote")`. Never derive `id` from volatile
+  fields (URL, posted date).
+- `content_hash` is the **change detector**: same `id`, different hash = the posting materially
+  changed and may re-surface as new. It deliberately excludes `sources[]` and dates so
+  cross-posting churn never re-surfaces a listing.
 - When two listings share an `id`, merge their `sources[]`; keep the earliest `first_seen_at`
-  and the most complete non-null fields.
+  and the most complete non-null fields; recompute `content_hash` from the merged record.
