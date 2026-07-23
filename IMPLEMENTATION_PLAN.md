@@ -10,144 +10,82 @@ applied directly.
 
 REMINDER (AGENTS.md): build iterations never modify files under `specs/`.
 
-## What's been built (merged to main)
+## What's been built (merged to main, verified on live data 2026-07-23)
 
-Pipeline stages 1–7 end-to-end: profile schema + validation (with
-`search_mode` posture presets), JobListing model with id/content_hash, Adzuna
-adapter, normalize (salary/location parsing, seniority inference), dedupe (id +
-URL merge), hard filter (nine disqualifiers, unknown-data policy), scorer (six
-components), rank/threshold, seen-state + dismiss CLI, Markdown/HTML/JSON
-digests, search-mode presets (`active_unemployed` / `active_employed` /
-`passive_employed`).
+Pipeline stages 1–7 end-to-end with two live profiles. Sources: Adzuna +
+ATS company watchlist (Greenhouse/Lever/Ashby; GitLab, Grafana Labs, Elastic,
+Canonical verified live), activated per profile via `queries.ats_watchlist`
+and wired through `_build_adapters(profile)`. Filtering calibrated against
+real runs: `require_keywords` domain anchors, `remote_countries_allowed`
+(region-restricted remote ≠ remote for this user; APAC/bare-Remote kept +
+flagged), hardened location parsing (semicolon country lists, region codes
+AMERICAS/EMEA/LATAM, remote-hub cities, AU preferred in multi-country lists),
+word-boundary location matching, skill-match saturation, adaptive remote
+detection, search-mode presets, multi-profile state/digest isolation,
+overflow-not-seen, golden fixture corpus (45 cases), Adzuna 429 backoff,
+`--output-dir` + scheduled-run docs, CSV export, global `fx_rates.yaml`
+(cross-rated into each profile's salary_currency; profile fx = overrides).
 
-## Manual prerequisites (Justin's terminal)
-
-Branch cleanup and git-litter quarantine were completed remotely on 2026-07-23:
-all 13 work-item branches are deleted (only `main` exists) and temp objects are
-moved into `_to_delete/`. What remains needs local delete permissions:
-
-```bash
-cd ~/JobHunter
-rm -rf _to_delete           # quarantined locks/refs/temp objects (~1.7 MB)
-git gc --prune=now
-python3 -m pytest -q        # expect 522 passed
-```
+Lesson encoded from the ATS wiring gap: every adapter work item's validation
+MUST include one end-to-end criterion ("a run with X configured shows X in
+sources_used") — unit tests alone let an unreachable adapter pass.
 
 ## Work items (priority order)
 
-1. **`ats-feed-adapter`** — Greenhouse/Lever/Ashby company-watchlist adapter
-    per specs/04 §Data sources. A draft is saved at `drafts/ats-adapter-draft.py`
-    — review it, fix the issues below, write tests, and land it. Delete the
-    draft file in the same branch.
-    Seed the example watchlist with open-source-heavy employers matching the
-    user's targeting (OSPO / community / governance roles) — e.g. GitHub,
-    GitLab, Canonical, Red Hat, HashiCorp, Grafana Labs, Elastic — since
-    Adzuna's coverage of these role families is thin. This makes the ATS adapter
-    the highest-value remaining item for the actual search.
-    Issues to address:
-    - `queries.ats_watchlist` must be added to the profile schema (profile.py
-      `_validate_queries`, `_TOP_LEVEL_KEYS`, defaults) and to
-      `specs/profile.example.yaml`. Shape: list of `{ats, slug, name?}`.
-    - `search()` has no per-company error handling despite its docstring —
-      first company failure aborts the whole watchlist. Catch per company,
-      aggregate failures, continue.
-    - The pipeline calls `search()` per keyword×location but this adapter is
-      query-independent — it refetches the whole watchlist every combo. Add a
-      query-independent adapter concept (fetch once per run) to pipeline.py,
-      and drop the cross-company `[:max_results]` truncation.
-    - Dead code in `_ashby_employment` (unused `emp` variable).
-    - Same never-guess issues as prior items ("Unknown" company, `date.today()`).
-    - Ashby `descriptionSocial` is a teaser, not the full description — note
-      the limitation or fetch the detail endpoint.
-    Validation: `python3 -m pytest tests/test_ats.py tests/test_profile.py tests/test_pipeline.py -q`.
-
-2. **`overflow-not-seen`** — DONE (2026-07-23, applied directly): cli.py
-    records seen-state only for the rendered slice (`new_results[:max_shown]`);
-    overflow stays eligible and resurfaces next run. 541 tests green.
-
-3. **`golden-fixture-corpus`** — specs/04 §Fixtures: 30–50 real (anonymized)
-    listings with expected outcomes at every stage, covering the awkward
-    cases listed there (incl. the remote-but-Sydney-based case and P0/P1
-    regression cases). Wire as pytest fixtures under `tests/fixtures/`; every
-    stage's acceptance-criteria tests run against it.
-    Draw the corpus from the PROFILE'S ACTUAL SEARCH DOMAIN — open source /
-    community / governance roles (OSPO, DevRel, head of community), not
-    generic software-engineering listings — including the low-paid
-    community-coordinator lookalikes the salary floor must catch and
-    management-track titles the seniority inference must classify.
-    Validation: full `python3 -m pytest -q`.
-
-4. **`adzuna-rate-limit-backoff`** — the Adzuna adapter has no inter-page
-    politeness delay and no 429/Retry-After backoff; fine while
-    `max_requests_per_run` caps volume, needed before adding more sources or
-    raising the cap. Add a configurable per-page delay and honour Retry-After
-    on 429 with bounded retries. Do together with or after item 1.
-    Validation: `python3 -m pytest tests/test_adzuna.py -q`.
-
-5. **`scheduled-run-docs`** — document the cron/scheduled-task invocation for
-    the weekday-morning digest (specs/02 §Modes), including state-file and
-    digest-output locations. Small CLI polish: add `--output-dir` to the `run`
-    subparser (cli.py `build_parser`) so the existing `hasattr(args, "output_dir")`
-    guard in `_cmd_run` actually fires, and clean up the
-    `state_path.parent.parent` default digest path.
-    Validation: `python3 -m pytest tests/test_cli.py -q`.
-
-## New-source work items (added 2026-07-23 — see git history of NEW-SOURCES-PLAN)
-
-Live calibration proved Adzuna alone can't serve either profile: Justin's
-market (open-source/community leadership) lives on ATS boards and remote job
-boards; Karynne's (culinary training) is government-adjacent and mainstream-
-volume. Design rule from the user: **sources are activated per profile** — a
-source with no config in the active profile is not constructed or fetched.
-Permitted access only (official APIs / published feeds); re-check each
-source's ToS at build time. Item 6 is the prerequisite for 7–10.
-
-6. **`profile-driven-sources`** — new validated profile section:
+1. **`profile-driven-sources`** — finish the `sources:` profile block
+   (partially done: ATS watchlist activation is live via queries.ats_watchlist).
+   Move to the unified shape and migrate:
 
    ```yaml
    sources:
      adzuna:        { enabled: true, country: "au" }
-     ats_watchlist: [ { ats: greenhouse, slug: github, name: GitHub } ]
+     ats_watchlist: [ { ats: greenhouse, slug: gitlab, name: GitLab } ]
      feeds:         [ { name: "iworkfornsw", url: "https://…" } ]
      remotive:      { enabled: false, categories: ["devrel"] }
      remoteok:      { enabled: false }
      careerjet:     { enabled: false }
    ```
 
-   `cli._build_adapters(profile)` constructs only what the profile enables;
-   creds stay in env vars (enabling a source with missing creds → stderr
-   warning + SourceFailure, not a crash). Relocate `queries.ats_watchlist`
-   (from the landed ats-feed-adapter work) into this block. Update specs/03
-   §Profile and profile.example.yaml.
+   Keep `queries.ats_watchlist` working with a deprecation note, or migrate
+   both live profiles in the same change. END-TO-END criterion: a run with a
+   source enabled lists it in `sources_used`; disabled sources are never
+   constructed.
    Validation: `python3 -m pytest tests/test_profile.py tests/test_cli.py -q`.
 
-7. **`rss-atom-adapter`** — one generic feed adapter over any RSS/Atom URL in
-   `sources.feeds` (name per feed for the source tally). Query-independent
-   (reuse the ATS adapter's fetch-once-per-run concept); parse title/link/
-   pubDate/description, strip HTML via shared normalize. Unlocks
-   WeWorkRemotely category feeds + fossjobs.net (Justin) and I Work for NSW
-   (Karynne) with zero further code.
+2. **`rss-atom-adapter`** — one generic feed adapter over any RSS/Atom URL in
+   `sources.feeds` (per-feed name for the source tally). Query-independent
+   (reuse `query_independent = True`); parse title/link/pubDate/description,
+   strip HTML via shared normalize. Unlocks WeWorkRemotely category feeds +
+   fossjobs.net (Justin) and I Work for NSW (Karynne).
+   END-TO-END criterion: a profile with one feed configured shows it in
+   sources_used and ingests fixture-feed entries.
    Validation: `python3 -m pytest tests/test_rss.py -q` (fixture feeds).
 
-8. **`remote-board-adapters`** — Remotive + RemoteOK public JSON APIs
+3. **`remote-board-adapters`** — Remotive + RemoteOK public JSON APIs
    (attribution per their terms). Both mark remoteness explicitly and often
-   carry salary. Add a per-source region tag so "remote (US only)" can be
-   flagged in the digest — most inventory is US-timezone.
+   carry salary; per-source region tag so "remote (US only)" is flaggable.
+   END-TO-END criterion as above.
    Validation: `python3 -m pytest tests/test_remotive.py tests/test_remoteok.py -q`.
 
-9. **`aggregator-adapter`** — Careerjet and/or Jooble free search APIs
+4. **`aggregator-adapter`** — Careerjet and/or Jooble free search APIs
    (keyword×location model — clone the Adzuna adapter shape). Broad AU
    mainstream recall for volume fields (Karynne's hospitality). Dedupe
-   already collapses cross-source duplicates; heavy Adzuna overlap expected
-   and fine.
+   handles the expected Adzuna overlap.
    Validation: `python3 -m pytest tests/test_careerjet.py -q`.
 
-10. **`workday-adapter`** — extend the ATS family with Workday's public
-    job-board JSON endpoints (adds Red Hat, Atlassian to watchlists). Same
-    watchlist shape (`ats: workday, slug: …`). Do after 6 lands.
-    Validation: `python3 -m pytest tests/test_ats.py -q`.
+5. **`workday-adapter`** — extend the ATS family with Workday's public
+   job-board JSON endpoints (adds Red Hat, Atlassian, HashiCorp to
+   watchlists). Same watchlist shape (`ats: workday, slug: …`). After item 1.
+   Validation: `python3 -m pytest tests/test_ats.py -q`.
+
+6. **`title-geo-restrictions`** (nice-to-have) — listings whose location is
+   bare "Remote" but whose TITLE names a region ("… - EMEA", "Renewals
+   Manager Germany") currently pass with the "remote scope unclear" flag.
+   Deliberate (title geo-scanning is false-positive-prone), but revisit if
+   flagged noise grows: a conservative title scan for region tokens could
+   downgrade these to ineligible. Requires fixture cases both ways.
 
 Explicitly out (documented): LinkedIn (no public API; ToS), direct Seek
-(partner-only; partial inventory arrives via aggregators), private RTO
-careers pages (no standard feeds). Paid Google-Jobs SERP API remains the
-documented fallback if free coverage proves insufficient after 7–9.
+(partner-only; partial inventory via aggregators), private RTO careers pages
+(no standard feeds). Paid Google-Jobs SERP API remains the documented
+fallback if free coverage proves insufficient after items 2–4.

@@ -658,3 +658,9 @@ def test_parse_location_region_names_are_restrictions():
 def test_parse_location_apac_stays_unknown():
     """APAC may include Australia — kept as unknown (flagged), never dropped."""
     assert parse_location("Remote APAC").country is None
+
+
+def test_parse_location_hub_city_maps_to_country():
+    """'Remote (Bangalore)' is an India restriction, not an unknown."""
+    assert parse_location("Remote (Bangalore)").country == "IN"
+    assert parse_location("Remote - Singapore").country == "SG"

@@ -233,6 +233,24 @@ _COUNTRY_NAMES: dict[str, Optional[str]] = {
     "nigeria": "NG",
     "kenya": "KE",
     "egypt": "EG",
+    # Common remote-hub CITIES that appear alone as restrictions ("Remote
+    # (Bangalore)") — mapped to their country so eligibility can act.
+    "bangalore": "IN",
+    "bengaluru": "IN",
+    "pune": "IN",
+    "hyderabad": "IN",
+    "singapore": "SG",
+    "london": "GB",
+    "dublin": "IE",
+    "toronto": "CA",
+    "vancouver": "CA",
+    "austin": "US",
+    "denver": "US",
+    "amsterdam": "NL",
+    "berlin": "DE",
+    "stockholm": "SE",
+    "tel aviv": "IL",
+    "dubai": "AE",
     # Region names: mapped to synthetic region codes so eligibility filters can
     # act on them (they are NOT unknown — "North America" clearly excludes AU).
     # APAC deliberately maps to None: it may include Australia (kept + flagged).
