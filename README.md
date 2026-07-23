@@ -21,10 +21,13 @@ source of truth, and the implementation will be generated from them.
 | `AGENTS.md` | Operational rules for the loop: repo map, validation commands, branch + hard limits. |
 | `tools/spec-loop/` | The spec-driven build loop (Ralph-style) that reconciles the code against the specs. |
 
-**Location policy:** the search targets **remote roles only, excluding
-Sydney-based postings** — configured (not hardcoded) in `profile.yaml` via
-`remote_policy: remote_only` + `exclude_locations: [Sydney]` (see
-`02-functional-spec.md` §Stage 4 for exact semantics).
+**Location policy:** remote work is **preferred via scoring, not hard-filtered**
+— configured (not hardcoded) in `profile.yaml` via `remote_policy: any` with a
+high `location_fit` weight. Rationale: source data (Adzuna) tags roles by
+suburb and company HQ, so location-based hard filtering dropped genuinely
+remote roles; scoring floats remote to the top while keeping everything
+reviewable. (See `02-functional-spec.md` §Stage 4 for the filter semantics
+that remain available.)
 
 ## The spec-driven workflow
 
