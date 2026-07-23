@@ -30,6 +30,26 @@ never-guess company ("" + salted id) + injected run_date, profile validation
 tightening (≥1 positive weight, bool/number, non-empty locations), and
 most-complete-location dedupe merges.
 
+## Manual prerequisites (Justin's terminal — the loop and the remote session can't do these)
+
+The device bridge cannot delete files or branch refs, so these must run locally
+before the next build round:
+
+```bash
+cd ~/JobHunter
+git branch -D ats-feed-adapter joblisting-model
+git branch -d project-scaffold profile-schema adzuna-adapter normalize-stage \
+  dedupe-stage hard-filter-stage phase1-cli-digest scoring-stage \
+  rank-threshold seen-state digest-html
+rm -rf _to_delete
+find .git -name 'tmp_obj_*' -delete
+git gc --prune=now
+python -m pytest -q     # expect 516 passed on main
+```
+
+The `ats-feed-adapter` branch deletion is REQUIRED before running the loop —
+while it exists, the loop treats that work item as in-progress and skips it.
+
 ## Work items (priority order)
 
 1. **`ats-feed-adapter`** — Greenhouse/Lever/Ashby company-watchlist adapter
@@ -66,3 +86,20 @@ most-complete-location dedupe merges.
     digest-output locations. No code beyond small CLI polish (`--output-dir`
     default cleanup — see review note on `state_path.parent.parent`).
     Validation: `python -m pytest tests/test_cli.py -q`.
+
+4. **`adzuna-rate-limit-backoff`** — the Adzuna adapter has no inter-page
+   politeness delay and no 429/Retry-After backoff; fine while
+   `max_requests_per_run` caps volume, needed before adding more sources or
+   raising the cap. Add a configurable per-page delay and honour Retry-After
+   on 429 with bounded retries. Do together with or after item 1.
+   Validation: `python -m pytest tests/test_adzuna.py -q`.
+
+5. **`overflow-seen-ux`** — decide and implement the intended UX for listings
+   beyond `output.max_shown`: they are currently marked seen even though they
+   only ever appear in the JSON data file (spec-consistent — "counted and
+   available in the data file" — but means a role you never saw in the digest
+   won't resurface). Options: (a) keep, but say "N more in data file" in the
+   digest; (b) don't mark overflow as seen so it resurfaces next run; (c) spill
+   overflow into the "Previously shown" section. Pick one, update spec 02
+   §Stage 7 and the seen-state logic to match.
+   Validation: `python -m pytest tests/test_state.py tests/test_digest.py -q`.
