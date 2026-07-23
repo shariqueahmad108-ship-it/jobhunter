@@ -16,11 +16,13 @@ import yaml
 
 from jobhunter.model import IC_LEVELS as _IC_LEVELS
 from jobhunter.model import MANAGEMENT_LEVELS as _MGMT_LEVELS
+
 _REMOTE_POLICIES = {"remote_only", "hybrid_ok", "onsite_ok", "any"}
 _EMPLOYMENT_TYPES = {"full_time", "part_time", "contract", "temp", "internship"}
 _KEYWORD_SCOPES = {"title", "requirements"}
 _OUTPUT_FORMATS = {"markdown", "html", "both"}
 _TRACKS = {"ic", "management"}
+_SUPPORTED_ATS_TYPES = {"greenhouse", "lever", "ashby"}
 
 _TOP_LEVEL_KEYS = {
     "identity",
@@ -109,7 +111,7 @@ def _validate_identity(identity: dict) -> None:
 def _validate_queries(queries: dict) -> None:
     _unknown_keys(
         queries,
-        {"keywords", "locations", "max_results_per_query", "max_requests_per_run"},
+        {"keywords", "locations", "max_results_per_query", "max_requests_per_run", "ats_watchlist"},
         "queries",
     )
     kw = _require(queries, "keywords", "queries")
@@ -124,6 +126,26 @@ def _validate_queries(queries: dict) -> None:
         raise ProfileError("queries.max_results_per_query: expected int")
     if "max_requests_per_run" in queries and not _is_int(queries["max_requests_per_run"]):
         raise ProfileError("queries.max_requests_per_run: expected int")
+    watchlist = queries.get("ats_watchlist")
+    if watchlist is None:
+        return
+    _expect_type(watchlist, list, "queries.ats_watchlist")
+    for i, entry in enumerate(watchlist):
+        _expect_type(entry, dict, f"queries.ats_watchlist[{i}]")
+        _unknown_keys(entry, {"ats", "slug", "name"}, f"queries.ats_watchlist[{i}]")
+        ats_type = _require(entry, "ats", f"queries.ats_watchlist[{i}]")
+        _expect_type(ats_type, str, f"queries.ats_watchlist[{i}].ats")
+        if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
+            raise ProfileError(
+                f"queries.ats_watchlist[{i}].ats: must be one of "
+                f"{sorted(_SUPPORTED_ATS_TYPES)}, got {ats_type!r}"
+            )
+        slug = _require(entry, "slug", f"queries.ats_watchlist[{i}]")
+        _expect_type(slug, str, f"queries.ats_watchlist[{i}].slug")
+        if not slug.strip():
+            raise ProfileError(f"queries.ats_watchlist[{i}].slug: must not be empty")
+        if "name" in entry and entry["name"] is not None:
+            _expect_type(entry["name"], str, f"queries.ats_watchlist[{i}].name")
 
 
 def _validate_seniority_bounds(seniority: dict, path: str) -> None:
@@ -351,6 +373,7 @@ def load_profile(path: str | Path) -> dict:
     q = raw["queries"]
     q.setdefault("max_results_per_query", 50)
     q.setdefault("max_requests_per_run", 100)
+    q.setdefault("ats_watchlist", [])
 
     hr = raw["hard_requirements"]
     hr.setdefault("exclude_locations", [])
