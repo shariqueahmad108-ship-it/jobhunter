@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # 03 — Data Model
 
 Three core shapes drive the whole tool: the **JobListing** (what comes in), the **Profile**
