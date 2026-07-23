@@ -37,10 +37,11 @@ before the next build round:
 
 ```bash
 cd ~/JobHunter
-git branch -D ats-feed-adapter joblisting-model
-git branch -d project-scaffold profile-schema adzuna-adapter normalize-stage \
-  dedupe-stage hard-filter-stage phase1-cli-digest scoring-stage \
-  rank-threshold seen-state digest-html
+# every branch is now a merged ancestor of main (joblisting-model via eb4776a),
+# so plain -d works for all of them
+git branch -d ats-feed-adapter joblisting-model project-scaffold profile-schema \
+  adzuna-adapter normalize-stage dedupe-stage hard-filter-stage \
+  phase1-cli-digest scoring-stage rank-threshold seen-state digest-html
 rm -rf _to_delete
 find .git -name 'tmp_obj_*' -delete
 git gc --prune=now
