@@ -2,7 +2,7 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by dedupe-stage build iteration):
+<!-- Known gaps (updated by hard-filter-stage build iteration):
   - Stage 1 adapter (Adzuna) is implemented; max_requests_per_run enforcement and
     truncation reporting belong in the pipeline runner (phase1-cli-digest).
   - Multi-keyword × multi-location fan-out from profile.queries belongs in the runner.
@@ -13,7 +13,12 @@ status: partial
   - Stage 3 dedupe is implemented in jobhunter.dedupe: id-based merging (same normalized
     identity key) and URL-based merging (same URL across sources); merges sources, keeps
     earliest first_seen_at, most complete non-null fields, recomputes content_hash.
-  - Stages 4–7 not yet implemented.
+  - Stage 4 hard filter is implemented in jobhunter.filter: all nine disqualifiers
+    (dismissed, exclude_locations, remote_policy, locations_allowed, seniority,
+    salary_floor with FX conversion and annualization, exclude_employment,
+    exclude_keywords with scope+word-boundary, max_age_days). Returns FilterResult
+    with passed listings, FilterTally, and per-listing unknown_flags.
+  - Stages 5–7 not yet implemented.
 -->
 
 # 02 — Functional Spec
