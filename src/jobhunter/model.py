@@ -142,6 +142,7 @@ class RunReport:
     shown_previous: int = 0
     active_weights: dict[str, float] = field(default_factory=dict)
     search_mode: Optional[str] = None  # active posture preset, for the digest header
+    fx_rates_stale_days: Optional[int] = None  # set when fx_rates.yaml is older than 90 days
 
 
 # ---------------------------------------------------------------------------

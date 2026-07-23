@@ -22,7 +22,13 @@ from pathlib import Path
 
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .pipeline import run as pipeline_run
-from .profile import ProfileError, effective_fx_rates, load_fx_rates, load_profile
+from .profile import (
+    ProfileError,
+    effective_fx_rates,
+    fx_rates_age_days,
+    load_fx_rates,
+    load_profile,
+)
 from .state import (
     dismiss_ids,
     load_state,
@@ -156,15 +162,25 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     # FX rates are global (fx_rates.yaml at repo root); the profile may override
     # individual currencies. Injected here so filter/score read one merged table.
+    _fx_path = "fx_rates.yaml"
     profile["hard_requirements"]["fx_rates"] = effective_fx_rates(
-        profile, load_fx_rates()
+        profile, load_fx_rates(_fx_path)
     )
+    _fx_age = fx_rates_age_days(_fx_path)
+    _FX_STALE_DAYS = 90
 
     adapters = _build_adapters(profile)
 
     today = date.today().isoformat()
     dismissed = set(state.dismissed_ids)
     results, report = pipeline_run(profile, adapters, dismissed_ids=dismissed)
+
+    if _fx_age is not None and _fx_age >= _FX_STALE_DAYS:
+        print(
+            f"Warning: fx_rates.yaml is {_fx_age} days old — consider refreshing exchange rates.",
+            file=sys.stderr,
+        )
+        report.fx_rates_stale_days = _fx_age
 
     output_cfg = profile.get("output", {})
     max_shown = int(output_cfg.get("max_shown", 25))

@@ -165,6 +165,12 @@ def render_markdown(
         weights_str = ", ".join(f"{k}: {v:g}" for k, v in report.active_weights.items())
         lines.append(f"\nActive weights: {weights_str}")
 
+    if report.fx_rates_stale_days is not None:
+        lines.append(
+            f"\n> **Note:** fx_rates.yaml is {report.fx_rates_stale_days} days old"
+            " — consider refreshing exchange rates."
+        )
+
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -353,6 +359,13 @@ def render_html(
     if report.active_weights:
         weights_str = ", ".join(f"{k}: {v:g}" for k, v in report.active_weights.items())
         parts.append(f"<strong>Active weights:</strong> {_h(weights_str)}<br>")
+
+    if report.fx_rates_stale_days is not None:
+        parts.append(
+            f'<p class="warn"><strong>Note:</strong> fx_rates.yaml is '
+            f"{report.fx_rates_stale_days} days old"
+            " — consider refreshing exchange rates.</p>"
+        )
 
     parts.append("</div>")  # .meta
 
