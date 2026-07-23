@@ -130,7 +130,18 @@ seen-state + dismiss CLI, Markdown/HTML/JSON digests.
     acceptance-criteria tests run against it.
     Validation: full `python -m pytest -q`.
 
-12. **`scheduled-run-docs`** — document the cron/scheduled-task invocation for
+12. **`profile-validation-tightening`** — the amended spec (03) requires at
+    least one positive weight, but `profile.py::_validate_weights` still
+    accepts empty/all-zero/negative weights blocks — enforce it (fail loud).
+    Exclude `bool` from numeric type checks (`isinstance(True, int)` lets
+    `salary_floor: true` validate today). Require `queries.locations`
+    non-empty (keywords already is). While in the area: drop the no-op rules
+    from `model.py::_TITLE_SUBSTITUTIONS` (`principal→principal`,
+    `staff→staff`), and make `dedupe.py::_merge_two` prefer the more-complete
+    parsed location per spec ("most complete non-null fields").
+    Validation: `python -m pytest tests/test_profile.py tests/test_model.py tests/test_dedupe.py -q`.
+
+13. **`scheduled-run-docs`** — document the cron/scheduled-task invocation for
     the weekday-morning digest (specs/02 §Modes), including state-file and
     digest-output locations. No code beyond small CLI polish (`--output-dir`
     default cleanup — see review note on `state_path.parent.parent`).
