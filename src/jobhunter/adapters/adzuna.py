@@ -13,7 +13,6 @@ See: specs/02-functional-spec.md §Stage 1-2
 
 from __future__ import annotations
 
-import html
 import os
 import re
 from datetime import date, datetime
@@ -31,6 +30,7 @@ from jobhunter.model import (
     derive_id,
     infer_seniority,
 )
+from jobhunter.normalize import strip_html
 
 RawListing = dict[str, Any]
 
@@ -90,13 +90,6 @@ _EMPLOYMENT_MAP: dict[tuple[str, str], str] = {
     ("temporary", "full_time"): "temp",
     ("temporary", "part_time"): "temp",
 }
-
-
-def _strip_html(text: str) -> str:
-    """Strip HTML tags and unescape HTML entities, collapsing whitespace."""
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = html.unescape(text)
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def _detect_remote(title: str, description: str, location_raw: str) -> bool:
@@ -217,7 +210,7 @@ class AdzunaAdapter:
         company_obj = raw.get("company") or {}
         company = (company_obj.get("display_name") or "Unknown").strip()
 
-        description = _strip_html(raw.get("description") or "")
+        description = strip_html(raw.get("description") or "")
 
         loc_obj = raw.get("location") or {}
         location = _parse_location(loc_obj)

@@ -20,9 +20,9 @@ from jobhunter.adapters.adzuna import (
     _parse_employment,
     _parse_location,
     _parse_posted_at,
-    _strip_html,
 )
 from jobhunter.model import JobListing
+from jobhunter.normalize import strip_html as _strip_html
 
 # ---------------------------------------------------------------------------
 # Fixture payloads — representative Adzuna API response shapes

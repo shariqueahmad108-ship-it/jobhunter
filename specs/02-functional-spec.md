@@ -2,13 +2,14 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by adzuna-adapter build iteration):
+<!-- Known gaps (updated by normalize-stage build iteration):
   - Stage 1 adapter (Adzuna) is implemented; max_requests_per_run enforcement and
     truncation reporting belong in the pipeline runner (phase1-cli-digest).
   - Multi-keyword × multi-location fan-out from profile.queries belongs in the runner.
-  - Stage 2 normalization (salary/location parsing, full seniority inference) is done
-    inside the Adzuna adapter's normalize(); the normalize-stage work item adds the
-    standalone pipeline stage for non-adapter-aware normalization paths.
+  - Stage 2 normalization utilities (strip_html, parse_salary, parse_location,
+    infer_seniority) are implemented in jobhunter.normalize; the Adzuna adapter now
+    uses strip_html from normalize (single source of truth). The run() pipeline stage
+    applies defensive post-adapter normalization (HTML stripping, empty-string → None).
   - Stages 3–7 not yet implemented.
 -->
 
