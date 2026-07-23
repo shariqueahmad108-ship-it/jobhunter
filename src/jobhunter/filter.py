@@ -33,6 +33,79 @@ from jobhunter.model import MANAGEMENT_LEVELS as _MGMT_LEVELS
 from jobhunter.model import PERIOD_MULTIPLIERS as _PERIOD_MULTIPLIERS
 from jobhunter.model import JobListing, Location, term_pattern
 
+# ---------------------------------------------------------------------------
+# Title geo-hint detection
+# ---------------------------------------------------------------------------
+
+# Region acronyms that are unambiguous geographic scope markers in job titles.
+_REGION_CODE_RE = re.compile(
+    r"\b(EMEA|APAC|LATAM|AMER(?:ICAS?)?|ANZ|DACH|MENA|NOAM)\b",
+    re.IGNORECASE,
+)
+
+# Country names that commonly appear in titles to indicate a geo restriction.
+_GEO_COUNTRIES = [
+    "Germany",
+    "France",
+    "United Kingdom",
+    "UK",
+    "Netherlands",
+    "Spain",
+    "Italy",
+    "Canada",
+    "Australia",
+    "India",
+    "Singapore",
+    "Sweden",
+    "Denmark",
+    "Norway",
+    "Finland",
+    "Poland",
+    "Portugal",
+    "Brazil",
+    "Mexico",
+    "Japan",
+]
+
+_COUNTRIES_RE = "|".join(re.escape(c) for c in _GEO_COUNTRIES)
+
+# Country after a separator: "Software Engineer - Germany", "Account Exec / UK"
+_COUNTRY_AFTER_SEP_RE = re.compile(
+    rf"[-/|:]\s*({_COUNTRIES_RE})\s*$",
+    re.IGNORECASE,
+)
+
+# Country in parentheses at end: "Sales Manager (Germany)"
+_COUNTRY_IN_PARENS_RE = re.compile(
+    rf"\(\s*({_COUNTRIES_RE})\s*\)\s*$",
+    re.IGNORECASE,
+)
+
+# Country as the final word: "Renewals Manager Germany"
+_COUNTRY_AT_END_RE = re.compile(
+    rf"\b({_COUNTRIES_RE})\s*$",
+    re.IGNORECASE,
+)
+
+
+def _title_geo_hint(title: str) -> str | None:
+    """Return a geo-region string found in the title, or None.
+
+    Only returns a value when the title contains an unambiguous geographic
+    scope marker — region acronyms (EMEA, APAC, …) or a country name in a
+    position that signals scope restriction (after a separator, in parens, or
+    as the final word).  Conservative by design: false negatives are fine;
+    false positives (flagging a non-restricted role) are the real cost.
+    """
+    m = _REGION_CODE_RE.search(title)
+    if m:
+        return m.group(1).upper()
+    for pat in (_COUNTRY_AFTER_SEP_RE, _COUNTRY_IN_PARENS_RE, _COUNTRY_AT_END_RE):
+        m = pat.search(title)
+        if m:
+            return m.group(1).title()
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Public result types
@@ -120,6 +193,12 @@ def _passes_location(listing: JobListing, hr: dict) -> tuple[bool, list[str]]:
             # No parsed location and is_remote=False: ambiguous → keep, mark.
             if "location unclear" not in flags:
                 flags.append("location unclear")
+    elif remote_policy in ("hybrid_ok", "onsite_ok"):
+        # A listing that claims to be remote but is restricted to a country the
+        # user can't work from is neither effectively remote nor an onsite option
+        # for this user — it must be dropped regardless of locations_allowed.
+        if loc.is_remote and not effective_remote:
+            return False, []
 
     # 3. locations_allowed (positive restriction, empty = anywhere).
     locs_allowed: list[str] = hr.get("locations_allowed", [])
@@ -135,9 +214,13 @@ def _passes_location(listing: JobListing, hr: dict) -> tuple[bool, list[str]]:
                     flags.append("location unclear")
 
     # Remote with no geographic context: may be "remote — must be in excluded city".
+    # If the title itself names a region or country, emit a more specific flag
+    # so the digest reader can see the likely scope without false-positive drops.
     if loc.is_remote and not _has_geographic_info(loc):
-        if "remote scope unclear" not in flags:
-            flags.append("remote scope unclear")
+        hint = _title_geo_hint(listing.title)
+        flag = f"remote scope: title hints {hint}" if hint else "remote scope unclear"
+        if flag not in flags:
+            flags.append(flag)
 
     return True, flags
 
