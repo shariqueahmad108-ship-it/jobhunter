@@ -30,26 +30,18 @@ never-guess company ("" + salted id) + injected run_date, profile validation
 tightening (≥1 positive weight, bool/number, non-empty locations), and
 most-complete-location dedupe merges.
 
-## Manual prerequisites (Justin's terminal — the loop and the remote session can't do these)
+## Manual prerequisites (Justin's terminal)
 
-The device bridge cannot delete files or branch refs, so these must run locally
-before the next build round:
+Branch cleanup and git-litter removal were completed remotely on 2026-07-23
+(all 13 work-item branches deleted; only `main` remains). What's left needs
+local delete permissions:
 
 ```bash
 cd ~/JobHunter
-# every branch is now a merged ancestor of main (joblisting-model via eb4776a),
-# so plain -d works for all of them
-git branch -d ats-feed-adapter joblisting-model project-scaffold profile-schema \
-  adzuna-adapter normalize-stage dedupe-stage hard-filter-stage \
-  phase1-cli-digest scoring-stage rank-threshold seen-state digest-html
-rm -rf _to_delete
-find .git -name 'tmp_obj_*' -delete
+rm -rf _to_delete           # quarantined locks/refs/temp objects (~1.7 MB)
 git gc --prune=now
-python -m pytest -q     # expect 516 passed on main
+python -m pytest -q         # expect 522 passed
 ```
-
-The `ats-feed-adapter` branch deletion is REQUIRED before running the loop —
-while it exists, the loop treats that work item as in-progress and skips it.
 
 ## Work items (priority order)
 
