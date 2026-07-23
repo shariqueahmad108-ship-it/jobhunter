@@ -299,6 +299,8 @@ def load_profile(path: str | Path) -> dict:
     hr.setdefault("exclude_employment", [])
     hr.setdefault("exclude_keywords", [])
     hr.setdefault("max_age_days", 30)
+    for kw in hr["exclude_keywords"]:
+        kw.setdefault("scope", "requirements")
 
     out = raw["output"]
     out.setdefault("display_threshold", 0)
