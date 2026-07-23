@@ -63,6 +63,12 @@ def _build_adapters(profile: dict) -> list:
 
         adapters.append(AtsAdapter(watchlist))
 
+    feeds = profile.get("queries", {}).get("feeds") or []
+    if feeds:
+        from jobhunter.adapters.rss import FeedAdapter
+
+        adapters.append(FeedAdapter(feeds))
+
     return adapters
 
 

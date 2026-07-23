@@ -112,7 +112,14 @@ def _validate_identity(identity: dict) -> None:
 def _validate_queries(queries: dict) -> None:
     _unknown_keys(
         queries,
-        {"keywords", "locations", "max_results_per_query", "max_requests_per_run", "ats_watchlist"},
+        {
+            "keywords",
+            "locations",
+            "max_results_per_query",
+            "max_requests_per_run",
+            "ats_watchlist",
+            "feeds",
+        },
         "queries",
     )
     kw = _require(queries, "keywords", "queries")
@@ -128,25 +135,39 @@ def _validate_queries(queries: dict) -> None:
     if "max_requests_per_run" in queries and not _is_int(queries["max_requests_per_run"]):
         raise ProfileError("queries.max_requests_per_run: expected int")
     watchlist = queries.get("ats_watchlist")
-    if watchlist is None:
-        return
-    _expect_type(watchlist, list, "queries.ats_watchlist")
-    for i, entry in enumerate(watchlist):
-        _expect_type(entry, dict, f"queries.ats_watchlist[{i}]")
-        _unknown_keys(entry, {"ats", "slug", "name"}, f"queries.ats_watchlist[{i}]")
-        ats_type = _require(entry, "ats", f"queries.ats_watchlist[{i}]")
-        _expect_type(ats_type, str, f"queries.ats_watchlist[{i}].ats")
-        if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
-            raise ProfileError(
-                f"queries.ats_watchlist[{i}].ats: must be one of "
-                f"{sorted(_SUPPORTED_ATS_TYPES)}, got {ats_type!r}"
-            )
-        slug = _require(entry, "slug", f"queries.ats_watchlist[{i}]")
-        _expect_type(slug, str, f"queries.ats_watchlist[{i}].slug")
-        if not slug.strip():
-            raise ProfileError(f"queries.ats_watchlist[{i}].slug: must not be empty")
-        if "name" in entry and entry["name"] is not None:
-            _expect_type(entry["name"], str, f"queries.ats_watchlist[{i}].name")
+    if watchlist is not None:
+        _expect_type(watchlist, list, "queries.ats_watchlist")
+        for i, entry in enumerate(watchlist):
+            _expect_type(entry, dict, f"queries.ats_watchlist[{i}]")
+            _unknown_keys(entry, {"ats", "slug", "name"}, f"queries.ats_watchlist[{i}]")
+            ats_type = _require(entry, "ats", f"queries.ats_watchlist[{i}]")
+            _expect_type(ats_type, str, f"queries.ats_watchlist[{i}].ats")
+            if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
+                raise ProfileError(
+                    f"queries.ats_watchlist[{i}].ats: must be one of "
+                    f"{sorted(_SUPPORTED_ATS_TYPES)}, got {ats_type!r}"
+                )
+            slug = _require(entry, "slug", f"queries.ats_watchlist[{i}]")
+            _expect_type(slug, str, f"queries.ats_watchlist[{i}].slug")
+            if not slug.strip():
+                raise ProfileError(f"queries.ats_watchlist[{i}].slug: must not be empty")
+            if "name" in entry and entry["name"] is not None:
+                _expect_type(entry["name"], str, f"queries.ats_watchlist[{i}].name")
+
+    feeds = queries.get("feeds")
+    if feeds is not None:
+        _expect_type(feeds, list, "queries.feeds")
+        for i, entry in enumerate(feeds):
+            _expect_type(entry, dict, f"queries.feeds[{i}]")
+            _unknown_keys(entry, {"name", "url"}, f"queries.feeds[{i}]")
+            name = _require(entry, "name", f"queries.feeds[{i}]")
+            _expect_type(name, str, f"queries.feeds[{i}].name")
+            if not name.strip():
+                raise ProfileError(f"queries.feeds[{i}].name: must not be empty")
+            url = _require(entry, "url", f"queries.feeds[{i}]")
+            _expect_type(url, str, f"queries.feeds[{i}].url")
+            if not url.strip():
+                raise ProfileError(f"queries.feeds[{i}].url: must not be empty")
 
 
 def _validate_seniority_bounds(seniority: dict, path: str) -> None:
@@ -437,6 +458,7 @@ def load_profile(path: str | Path) -> dict:
     q.setdefault("max_results_per_query", 50)
     q.setdefault("max_requests_per_run", 100)
     q.setdefault("ats_watchlist", [])
+    q.setdefault("feeds", [])
 
     hr = raw["hard_requirements"]
     hr.setdefault("exclude_locations", [])
