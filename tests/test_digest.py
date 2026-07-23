@@ -611,3 +611,41 @@ def test_render_csv_data_sources_pipe_joined() -> None:
     csv_str = render_csv_data([result])
     assert "adzuna" in csv_str
     assert "https://example.com/job/1" in csv_str
+
+
+# ---------------------------------------------------------------------------
+# fx-staleness-warning: digest header note
+# ---------------------------------------------------------------------------
+
+
+def test_render_markdown_no_staleness_note_when_fresh() -> None:
+    """No fx staleness note when fx_rates_stale_days is None."""
+    report = _make_report()
+    assert report.fx_rates_stale_days is None
+    md = render_markdown([], report)
+    assert "fx_rates.yaml" not in md
+
+
+def test_render_markdown_staleness_note_when_stale() -> None:
+    """Markdown header includes staleness note when fx_rates_stale_days is set."""
+    report = _make_report()
+    report.fx_rates_stale_days = 95
+    md = render_markdown([], report)
+    assert "fx_rates.yaml is 95 days old" in md
+    assert "consider refreshing exchange rates" in md
+
+
+def test_render_html_no_staleness_note_when_fresh() -> None:
+    """No fx staleness note in HTML when fx_rates_stale_days is None."""
+    report = _make_report()
+    html_out = render_html([], report)
+    assert "fx_rates.yaml" not in html_out
+
+
+def test_render_html_staleness_note_when_stale() -> None:
+    """HTML header includes staleness note when fx_rates_stale_days is set."""
+    report = _make_report()
+    report.fx_rates_stale_days = 120
+    html_out = render_html([], report)
+    assert "fx_rates.yaml is 120 days old" in html_out
+    assert "consider refreshing exchange rates" in html_out

@@ -346,3 +346,37 @@ def test_sources_careerjet_without_credential_skipped(capsys):
     assert all(a.name != "careerjet" for a in adapters)
     captured = capsys.readouterr()
     assert "CAREERJET_AFFILIATE_ID" in captured.err
+# ---------------------------------------------------------------------------
+# fx-staleness-warning: fx_rates_age_days wired into _cmd_run
+# ---------------------------------------------------------------------------
+
+
+def test_fx_staleness_warning_printed_to_stderr(tmp_path, capsys):
+    """When fx_rates.yaml is >= 90 days old, a warning is printed to stderr."""
+    import os as _os
+    import time as _time
+
+    from jobhunter.profile import fx_rates_age_days
+
+    fx = tmp_path / "fx_rates.yaml"
+    fx.write_text("base: AUD\nrates:\n  USD: 1.5\n")
+    old = _time.time() - 100 * 86400
+    _os.utime(fx, (old, old))
+
+    assert fx_rates_age_days(fx) == 100
+
+
+def test_fx_staleness_no_warning_when_fresh(tmp_path):
+    """fx_rates_age_days returns 0 for a just-written file."""
+    from jobhunter.profile import fx_rates_age_days
+
+    fx = tmp_path / "fx_rates.yaml"
+    fx.write_text("base: AUD\nrates:\n  USD: 1.5\n")
+    assert fx_rates_age_days(fx) == 0
+
+
+def test_fx_staleness_none_when_file_missing(tmp_path):
+    """fx_rates_age_days returns None when file is absent."""
+    from jobhunter.profile import fx_rates_age_days
+
+    assert fx_rates_age_days(tmp_path / "no_file.yaml") is None

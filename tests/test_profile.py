@@ -7,12 +7,20 @@ unknown-key rejection, enum validation, and constraint enforcement.
 Validation: python -m pytest tests/test_profile.py -q
 """
 
+import os as _os
+import time as _time
 from pathlib import Path
 
 import pytest
 import yaml
 
-from jobhunter.profile import ProfileError, load_profile
+from jobhunter.profile import (
+    ProfileError,
+    effective_fx_rates,
+    fx_rates_age_days,
+    load_fx_rates,
+    load_profile,
+)
 
 SPECS_DIR = Path(__file__).parent.parent / "specs"
 EXAMPLE_PROFILE = SPECS_DIR / "profile.example.yaml"
@@ -793,8 +801,6 @@ def test_remote_countries_allowed_empty_rejected(tmp_path: Path) -> None:
 # Global FX rates (fx_rates.yaml)
 # ---------------------------------------------------------------------------
 
-from jobhunter.profile import effective_fx_rates, load_fx_rates
-
 
 def test_load_fx_rates_missing_file(tmp_path: Path) -> None:
     fx = load_fx_rates(tmp_path / "nope.yaml")
@@ -1056,3 +1062,26 @@ def test_justin_profile_loads() -> None:
     if not p.exists():
         pytest.skip("profile-justin.yaml not present (git-ignored; copy from example)")
     load_profile(p)
+# fx_rates_age_days (fx-staleness-warning)
+# ---------------------------------------------------------------------------
+
+
+def test_fx_rates_age_days_missing_file(tmp_path: Path) -> None:
+    """Returns None when the file does not exist."""
+    assert fx_rates_age_days(tmp_path / "nope.yaml") is None
+
+
+def test_fx_rates_age_days_fresh_file(tmp_path: Path) -> None:
+    """Returns 0 for a file written just now."""
+    f = tmp_path / "fx.yaml"
+    f.write_text("base: AUD\nrates:\n  USD: 1.5\n")
+    assert fx_rates_age_days(f) == 0
+
+
+def test_fx_rates_age_days_old_file(tmp_path: Path) -> None:
+    """Returns the correct day count for a file whose mtime is set in the past."""
+    f = tmp_path / "fx.yaml"
+    f.write_text("base: AUD\nrates:\n  USD: 1.5\n")
+    old_mtime = _time.time() - 100 * 86400  # 100 days ago
+    _os.utime(f, (old_mtime, old_mtime))
+    assert fx_rates_age_days(f) == 100

@@ -9,6 +9,7 @@ See: specs/03-data-model.md §Profile
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -473,6 +474,15 @@ def load_fx_rates(path: str | Path = "fx_rates.yaml") -> dict:
         if not isinstance(k, str) or not _is_number(v) or v <= 0:
             raise ProfileError(f"fx_rates.yaml: bad rate {k!r}: {v!r}")
     return {"base": base, "rates": {k.upper(): float(v) for k, v in rates.items()}}
+
+
+def fx_rates_age_days(path: str | Path = "fx_rates.yaml") -> int | None:
+    """Return the age of *path* in whole days, or None if the file is absent."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    age_seconds = time.time() - p.stat().st_mtime
+    return int(age_seconds // 86400)
 
 
 def effective_fx_rates(profile: dict, global_fx: dict) -> dict:
