@@ -63,6 +63,12 @@ def _build_adapters(profile: dict) -> list:
 
         adapters.append(AtsAdapter(watchlist))
 
+    careerjet_id = os.environ.get("CAREERJET_AFFILIATE_ID", "")
+    if careerjet_id:
+        from jobhunter.adapters.careerjet import CareerjetAdapter
+
+        adapters.append(CareerjetAdapter(affiliate_id=careerjet_id))
+
     return adapters
 
 
