@@ -475,3 +475,15 @@ def test_render_json_data_empty() -> None:
     json_str = render_json_data([])
     data = json.loads(json_str)
     assert data == []
+
+
+def test_digest_header_names_search_mode():
+    report = _make_report()
+    report.search_mode = "active_unemployed"
+    md = render_markdown([], report)
+    assert "Mode: active_unemployed" in md
+
+
+def test_digest_header_mode_none_when_unset():
+    md = render_markdown([], _make_report())
+    assert "Mode: none" in md

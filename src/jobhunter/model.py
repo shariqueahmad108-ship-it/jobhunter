@@ -140,6 +140,7 @@ class RunReport:
     shown_new: int = 0
     shown_previous: int = 0
     active_weights: dict[str, float] = field(default_factory=dict)
+    search_mode: Optional[str] = None  # active posture preset, for the digest header
 
 
 # ---------------------------------------------------------------------------

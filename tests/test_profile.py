@@ -603,3 +603,34 @@ def test_empty_locations_rejected(tmp_path: Path) -> None:
     prof["queries"] = {**prof["queries"], "locations": []}
     with pytest.raises(ProfileError, match="locations must not be empty"):
         load_profile(_write(tmp_path, prof))
+
+
+# ---------------------------------------------------------------------------
+# search_mode posture presets (spec 02 §Search posture)
+# ---------------------------------------------------------------------------
+
+
+def test_search_mode_preset_fills_unset_knobs(tmp_path: Path) -> None:
+    prof = load_profile(_write(tmp_path, _minimal({"search_mode": "active_unemployed"})))
+    assert prof["output"]["display_threshold"] == 40
+    assert prof["output"]["max_shown"] == 40
+    assert prof["hard_requirements"]["max_age_days"] == 30
+
+
+def test_search_mode_explicit_values_win(tmp_path: Path) -> None:
+    data = _minimal({"search_mode": "passive_employed", "output": {"display_threshold": 60}})
+    prof = load_profile(_write(tmp_path, data))
+    assert prof["output"]["display_threshold"] == 60      # explicit beats preset (70)
+    assert prof["output"]["max_shown"] == 10              # preset fills the unset knob
+
+
+def test_search_mode_absent_uses_schema_defaults(tmp_path: Path) -> None:
+    prof = load_profile(_write(tmp_path, _minimal()))
+    assert prof["output"]["display_threshold"] == 0
+    assert prof["output"]["max_shown"] == 25
+    assert prof["hard_requirements"]["max_age_days"] == 30
+
+
+def test_search_mode_invalid_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match="search_mode"):
+        load_profile(_write(tmp_path, _minimal({"search_mode": "desperate"})))

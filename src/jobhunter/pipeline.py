@@ -136,6 +136,7 @@ def run(
         below_threshold=below_threshold,
         shown_new=len(shortlist),
         active_weights=active_weights,
+        search_mode=profile.get("search_mode"),
     )
 
     return shortlist, report

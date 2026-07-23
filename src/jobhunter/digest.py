@@ -113,6 +113,7 @@ def render_markdown(
     lines.append("# JobHunter — Run Report")
     lines.append("")
     lines.append(f"Run at: {report.run_at}")
+    lines.append(f"Mode: {report.search_mode or 'none'}")
 
     if report.sources_used:
         lines.append(f"Sources: {', '.join(report.sources_used)}")
@@ -292,6 +293,7 @@ def render_html(
     parts.append("<h1>JobHunter — Run Report</h1>")
     parts.append('<div class="meta">')
     parts.append(f"<strong>Run at:</strong> {_h(report.run_at)}<br>")
+    parts.append(f"<strong>Mode:</strong> {_h(report.search_mode or 'none')}<br>")
 
     if report.sources_used:
         parts.append(f"<strong>Sources:</strong> {_h(', '.join(report.sources_used))}<br>")

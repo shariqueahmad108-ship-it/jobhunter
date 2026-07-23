@@ -116,10 +116,8 @@ while it exists, the loop treats that work item as in-progress and skips it.
    max_shown 25 → next identical run shows the remaining 5 as new.
    Validation: `python -m pytest tests/test_state.py tests/test_digest.py -q`.
 
-6. **`search-mode-presets`** — implement `search_mode` per spec 02 §Search
-   posture and 03 §Profile: an optional enum whose preset fills
-   `display_threshold`, `max_shown`, and `max_age_days` ONLY where the profile
-   leaves them unset (explicit values always win); digest header names the
-   active mode; no mode = schema defaults (backward compatible). Validate the
-   enum in profile.py (fail loud on unknown values).
-   Validation: `python -m pytest tests/test_profile.py tests/test_digest.py -q`.
+6. **`search-mode-presets`** — DONE (2026-07-23, applied directly with the
+   spec change; 522 tests green): `search_mode` enum validated in profile.py,
+   presets fill display_threshold / max_shown / max_age_days only where unset,
+   digest headers (md + html) name the active mode, RunReport carries it.
+   Justin's profile.yaml runs `active_unemployed`.

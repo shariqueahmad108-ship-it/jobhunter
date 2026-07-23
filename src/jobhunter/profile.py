@@ -22,7 +22,22 @@ _KEYWORD_SCOPES = {"title", "requirements"}
 _OUTPUT_FORMATS = {"markdown", "html", "both"}
 _TRACKS = {"ic", "management"}
 
-_TOP_LEVEL_KEYS = {"identity", "queries", "hard_requirements", "preferences", "weights", "output"}
+_TOP_LEVEL_KEYS = {
+    "identity",
+    "queries",
+    "hard_requirements",
+    "preferences",
+    "weights",
+    "output",
+    "search_mode",
+}
+
+# Posture presets (spec 02 §Search posture): defaults only — explicit values win.
+_SEARCH_MODES: dict[str, dict] = {
+    "active_unemployed": {"display_threshold": 40, "max_shown": 40, "max_age_days": 30},
+    "active_employed": {"display_threshold": 55, "max_shown": 25, "max_age_days": 21},
+    "passive_employed": {"display_threshold": 70, "max_shown": 10, "max_age_days": 14},
+}
 
 
 class ProfileError(ValueError):
@@ -298,12 +313,25 @@ def load_profile(path: str | Path) -> dict:
 
     _unknown_keys(raw, _TOP_LEVEL_KEYS, "<profile>")
 
+    mode = raw.get("search_mode")
+    if mode is not None and mode not in _SEARCH_MODES:
+        raise ProfileError(
+            f"search_mode: must be one of {sorted(_SEARCH_MODES)} or omitted, got {mode!r}"
+        )
+
     _validate_identity(_require(raw, "identity", "<profile>"))
     _validate_queries(_require(raw, "queries", "<profile>"))
     _validate_hard_requirements(_require(raw, "hard_requirements", "<profile>"))
     _validate_preferences(_require(raw, "preferences", "<profile>"))
     _validate_weights(_require(raw, "weights", "<profile>"))
     _validate_output(_require(raw, "output", "<profile>"))
+
+    # Apply posture preset FIRST (fills only unset knobs), then schema defaults
+    if mode is not None:
+        preset = _SEARCH_MODES[mode]
+        raw["hard_requirements"].setdefault("max_age_days", preset["max_age_days"])
+        raw["output"].setdefault("display_threshold", preset["display_threshold"])
+        raw["output"].setdefault("max_shown", preset["max_shown"])
 
     # Apply defaults
     q = raw["queries"]
