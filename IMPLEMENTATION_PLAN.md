@@ -91,3 +91,63 @@ python3 -m pytest -q        # expect 522 passed
     guard in `_cmd_run` actually fires, and clean up the
     `state_path.parent.parent` default digest path.
     Validation: `python3 -m pytest tests/test_cli.py -q`.
+
+## New-source work items (added 2026-07-23 — see git history of NEW-SOURCES-PLAN)
+
+Live calibration proved Adzuna alone can't serve either profile: Justin's
+market (open-source/community leadership) lives on ATS boards and remote job
+boards; Karynne's (culinary training) is government-adjacent and mainstream-
+volume. Design rule from the user: **sources are activated per profile** — a
+source with no config in the active profile is not constructed or fetched.
+Permitted access only (official APIs / published feeds); re-check each
+source's ToS at build time. Item 6 is the prerequisite for 7–10.
+
+6. **`profile-driven-sources`** — new validated profile section:
+
+   ```yaml
+   sources:
+     adzuna:        { enabled: true, country: "au" }
+     ats_watchlist: [ { ats: greenhouse, slug: github, name: GitHub } ]
+     feeds:         [ { name: "iworkfornsw", url: "https://…" } ]
+     remotive:      { enabled: false, categories: ["devrel"] }
+     remoteok:      { enabled: false }
+     careerjet:     { enabled: false }
+   ```
+
+   `cli._build_adapters(profile)` constructs only what the profile enables;
+   creds stay in env vars (enabling a source with missing creds → stderr
+   warning + SourceFailure, not a crash). Relocate `queries.ats_watchlist`
+   (from the landed ats-feed-adapter work) into this block. Update specs/03
+   §Profile and profile.example.yaml.
+   Validation: `python3 -m pytest tests/test_profile.py tests/test_cli.py -q`.
+
+7. **`rss-atom-adapter`** — one generic feed adapter over any RSS/Atom URL in
+   `sources.feeds` (name per feed for the source tally). Query-independent
+   (reuse the ATS adapter's fetch-once-per-run concept); parse title/link/
+   pubDate/description, strip HTML via shared normalize. Unlocks
+   WeWorkRemotely category feeds + fossjobs.net (Justin) and I Work for NSW
+   (Karynne) with zero further code.
+   Validation: `python3 -m pytest tests/test_rss.py -q` (fixture feeds).
+
+8. **`remote-board-adapters`** — Remotive + RemoteOK public JSON APIs
+   (attribution per their terms). Both mark remoteness explicitly and often
+   carry salary. Add a per-source region tag so "remote (US only)" can be
+   flagged in the digest — most inventory is US-timezone.
+   Validation: `python3 -m pytest tests/test_remotive.py tests/test_remoteok.py -q`.
+
+9. **`aggregator-adapter`** — Careerjet and/or Jooble free search APIs
+   (keyword×location model — clone the Adzuna adapter shape). Broad AU
+   mainstream recall for volume fields (Karynne's hospitality). Dedupe
+   already collapses cross-source duplicates; heavy Adzuna overlap expected
+   and fine.
+   Validation: `python3 -m pytest tests/test_careerjet.py -q`.
+
+10. **`workday-adapter`** — extend the ATS family with Workday's public
+    job-board JSON endpoints (adds Red Hat, Atlassian to watchlists). Same
+    watchlist shape (`ats: workday, slug: …`). Do after 6 lands.
+    Validation: `python3 -m pytest tests/test_ats.py -q`.
+
+Explicitly out (documented): LinkedIn (no public API; ToS), direct Seek
+(partner-only; partial inventory arrives via aggregators), private RTO
+careers pages (no standard feeds). Paid Google-Jobs SERP API remains the
+documented fallback if free coverage proves insufficient after 7–9.
