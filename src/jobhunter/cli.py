@@ -36,9 +36,11 @@ _DEFAULT_PROFILE = Path("profile.yaml")
 _DEFAULT_STATE = Path("state/state.yaml")
 
 
-def _build_adapters() -> list:
-    """Build configured source adapters from env vars.
+def _build_adapters(profile: dict) -> list:
+    """Build the source adapters the PROFILE activates (first slice of plan item 6).
 
+    Adzuna: enabled when env credentials exist (as before).
+    ATS watchlist: enabled when queries.ats_watchlist is non-empty.
     Warns to stderr for each unconfigured adapter; returns empty list when none available.
     """
     adapters = []
@@ -54,6 +56,12 @@ def _build_adapters() -> list:
             "Warning: ADZUNA_APP_ID / ADZUNA_APP_KEY not set — Adzuna adapter skipped.",
             file=sys.stderr,
         )
+
+    watchlist = profile.get("queries", {}).get("ats_watchlist") or []
+    if watchlist:
+        from jobhunter.adapters.ats import AtsAdapter
+
+        adapters.append(AtsAdapter(watchlist))
 
     return adapters
 
@@ -88,7 +96,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Error loading state: {e}", file=sys.stderr)
         return 1
 
-    adapters = _build_adapters()
+    adapters = _build_adapters(profile)
 
     today = date.today().isoformat()
     dismissed = set(state.dismissed_ids)
