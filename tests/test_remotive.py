@@ -454,8 +454,8 @@ def test_profile_remotive_enabled_valid():
         "queries": {
             "keywords": ["engineer"],
             "locations": ["Remote"],
-            "remotive": {"enabled": True, "categories": ["software-dev"]},
         },
+        "sources": {"remotive": {"enabled": True, "categories": ["software-dev"]}},
         "hard_requirements": {"remote_policy": "remote_only"},
         "preferences": {},
         "weights": {"skill_match": 1},
@@ -466,8 +466,8 @@ def test_profile_remotive_enabled_valid():
         path = f.name
     try:
         profile = load_profile(path)
-        assert profile["queries"]["remotive"]["enabled"] is True
-        assert profile["queries"]["remotive"]["categories"] == ["software-dev"]
+        assert profile["sources"]["remotive"]["enabled"] is True
+        assert profile["sources"]["remotive"]["categories"] == ["software-dev"]
     finally:
         os.unlink(path)
 
@@ -488,8 +488,8 @@ def test_profile_remotive_disabled_valid():
         "queries": {
             "keywords": ["engineer"],
             "locations": ["Remote"],
-            "remotive": {"enabled": False},
         },
+        "sources": {"remotive": {"enabled": False}},
         "hard_requirements": {"remote_policy": "remote_only"},
         "preferences": {},
         "weights": {"skill_match": 1},
@@ -500,7 +500,7 @@ def test_profile_remotive_disabled_valid():
         path = f.name
     try:
         profile = load_profile(path)
-        assert profile["queries"]["remotive"]["enabled"] is False
+        assert profile["sources"]["remotive"]["enabled"] is False
     finally:
         os.unlink(path)
 

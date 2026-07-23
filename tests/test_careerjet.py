@@ -623,11 +623,13 @@ def test_no_page_delay_on_first_page():
 
 
 def test_build_adapters_includes_careerjet_when_configured():
-    """END-TO-END: CAREERJET_AFFILIATE_ID set → CareerjetAdapter present in pipeline."""
+    """END-TO-END: sources.careerjet.enabled=True + CAREERJET_AFFILIATE_ID → adapter built."""
     from jobhunter.cli import _build_adapters
 
-    profile = {"queries": {"ats_watchlist": []}}
-    # Supply Careerjet; suppress Adzuna to keep the test clean
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"careerjet": {"enabled": True}},
+    }
     excluded = {"ADZUNA_APP_ID", "ADZUNA_APP_KEY"}
     clean_env = {k: v for k, v in os.environ.items() if k not in excluded}
     clean_env["CAREERJET_AFFILIATE_ID"] = "test_id"

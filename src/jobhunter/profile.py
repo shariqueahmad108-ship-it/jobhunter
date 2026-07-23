@@ -140,7 +140,11 @@ def _validate_queries(queries: dict) -> None:
         _expect_type(watchlist, list, "queries.ats_watchlist")
         for i, entry in enumerate(watchlist):
             _expect_type(entry, dict, f"queries.ats_watchlist[{i}]")
-            _unknown_keys(entry, {"ats", "slug", "name"}, f"queries.ats_watchlist[{i}]")
+            _unknown_keys(
+                entry,
+                {"ats", "slug", "name", "workday_path", "workday_instance"},
+                f"queries.ats_watchlist[{i}]",
+            )
             ats_type = _require(entry, "ats", f"queries.ats_watchlist[{i}]")
             _expect_type(ats_type, str, f"queries.ats_watchlist[{i}].ats")
             if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
@@ -154,6 +158,13 @@ def _validate_queries(queries: dict) -> None:
                 raise ProfileError(f"queries.ats_watchlist[{i}].slug: must not be empty")
             if "name" in entry and entry["name"] is not None:
                 _expect_type(entry["name"], str, f"queries.ats_watchlist[{i}].name")
+            if "workday_path" in entry and entry["workday_path"] is not None:
+                _expect_type(entry["workday_path"], str, f"queries.ats_watchlist[{i}].workday_path")
+            if "workday_instance" in entry and entry["workday_instance"] is not None:
+                if not _is_int(entry["workday_instance"]):
+                    raise ProfileError(
+                        f"queries.ats_watchlist[{i}].workday_instance: expected int"
+                    )
 
     feeds = queries.get("feeds")
     if feeds is not None:
@@ -189,7 +200,11 @@ def _validate_sources(sources: dict) -> None:
         _expect_type(ats_watchlist, list, "sources.ats_watchlist")
         for i, entry in enumerate(ats_watchlist):
             _expect_type(entry, dict, f"sources.ats_watchlist[{i}]")
-            _unknown_keys(entry, {"ats", "slug", "name"}, f"sources.ats_watchlist[{i}]")
+            _unknown_keys(
+                entry,
+                {"ats", "slug", "name", "workday_path", "workday_instance"},
+                f"sources.ats_watchlist[{i}]",
+            )
             ats_type = _require(entry, "ats", f"sources.ats_watchlist[{i}]")
             _expect_type(ats_type, str, f"sources.ats_watchlist[{i}].ats")
             if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
@@ -203,6 +218,13 @@ def _validate_sources(sources: dict) -> None:
                 raise ProfileError(f"sources.ats_watchlist[{i}].slug: must not be empty")
             if "name" in entry and entry["name"] is not None:
                 _expect_type(entry["name"], str, f"sources.ats_watchlist[{i}].name")
+            if "workday_path" in entry and entry["workday_path"] is not None:
+                _expect_type(entry["workday_path"], str, f"sources.ats_watchlist[{i}].workday_path")
+            if "workday_instance" in entry and entry["workday_instance"] is not None:
+                if not _is_int(entry["workday_instance"]):
+                    raise ProfileError(
+                        f"sources.ats_watchlist[{i}].workday_instance: expected int"
+                    )
 
     feeds = sources.get("feeds")
     if feeds is not None:

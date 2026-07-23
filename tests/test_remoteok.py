@@ -474,8 +474,8 @@ def test_profile_remoteok_enabled_valid():
         "queries": {
             "keywords": ["engineer"],
             "locations": ["Remote"],
-            "remoteok": {"enabled": True},
         },
+        "sources": {"remoteok": {"enabled": True}},
         "hard_requirements": {"remote_policy": "remote_only"},
         "preferences": {},
         "weights": {"skill_match": 1},
@@ -486,7 +486,7 @@ def test_profile_remoteok_enabled_valid():
         path = f.name
     try:
         profile = load_profile(path)
-        assert profile["queries"]["remoteok"]["enabled"] is True
+        assert profile["sources"]["remoteok"]["enabled"] is True
     finally:
         os.unlink(path)
 

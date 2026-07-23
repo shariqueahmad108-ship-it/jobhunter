@@ -178,3 +178,171 @@ def test_legacy_queries_ats_watchlist_still_works():
     with patch.dict(_os.environ, env, clear=True):
         adapters = _build_adapters(profile)
     assert any(a.name == "ats" for a in adapters)
+
+
+def test_sources_ats_watchlist_workday_wires_ats_adapter():
+    """END-TO-END: Workday entry in sources.ats_watchlist constructs an AtsAdapter."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {
+            "ats_watchlist": [
+                {"ats": "workday", "slug": "redhat", "name": "Red Hat"},
+                {"ats": "workday", "slug": "atlassian", "name": "Atlassian"},
+                {"ats": "workday", "slug": "hashicorp", "name": "HashiCorp"},
+            ]
+        },
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+
+    ats_adapters = [a for a in adapters if a.name == "ats"]
+    assert len(ats_adapters) == 1
+    slugs = [e["slug"] for e in ats_adapters[0]._watchlist]
+    assert "redhat" in slugs and "atlassian" in slugs and "hashicorp" in slugs
+
+
+# ---------------------------------------------------------------------------
+# sources: block — END-TO-END criterion for feeds, remotive, remoteok, careerjet
+# (karynne-source-config work item)
+# ---------------------------------------------------------------------------
+
+
+def test_sources_feeds_constructs_feed_adapter():
+    """sources.feeds list => FeedAdapter constructed."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {
+            "feeds": [
+                {"name": "iworkfornsw", "url": "https://example.com/iworkfornsw.rss"},
+                {"name": "weworkremotely", "url": "https://example.com/wwr.rss"},
+            ]
+        },
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "feeds" for a in adapters)
+
+
+def test_sources_feeds_empty_no_feed_adapter():
+    """Empty sources.feeds => no FeedAdapter."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"feeds": []},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert all(a.name != "feeds" for a in adapters)
+
+
+def test_sources_remotive_enabled_constructs_adapter():
+    """sources.remotive.enabled=True => RemotiveAdapter constructed."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"remotive": {"enabled": True, "categories": ["devrel"]}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "remotive" for a in adapters)
+
+
+def test_sources_remotive_disabled_no_adapter():
+    """sources.remotive.enabled=False => no RemotiveAdapter."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"remotive": {"enabled": False}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert all(a.name != "remotive" for a in adapters)
+
+
+def test_sources_remoteok_enabled_constructs_adapter():
+    """sources.remoteok.enabled=True => RemoteOKAdapter constructed."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"remoteok": {"enabled": True}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "remoteok" for a in adapters)
+
+
+def test_sources_careerjet_with_credential_constructs_adapter():
+    """sources.careerjet.enabled=True + CAREERJET_AFFILIATE_ID => CareerjetAdapter."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"careerjet": {"enabled": True}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "CAREERJET_AFFILIATE_ID")}
+    env["CAREERJET_AFFILIATE_ID"] = "test-affiliate-id"
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "careerjet" for a in adapters)
+
+
+def test_sources_careerjet_without_credential_skipped(capsys):
+    """sources.careerjet.enabled=True but no cred => no adapter, warning printed."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"careerjet": {"enabled": True}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "CAREERJET_AFFILIATE_ID")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert all(a.name != "careerjet" for a in adapters)
+    captured = capsys.readouterr()
+    assert "CAREERJET_AFFILIATE_ID" in captured.err
