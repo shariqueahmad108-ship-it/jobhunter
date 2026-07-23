@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from jobhunter.filter import FilterResult, FilterTally, run
+from jobhunter.filter import FilterResult, FilterTally, _title_geo_hint, run
 from jobhunter.model import JobListing, Location, Salary, Seniority, Source
 
 # ---------------------------------------------------------------------------
@@ -831,3 +831,136 @@ def test_onsite_allowlisted_city_unaffected_by_rc():
     listing = _listing(id="syd", is_remote=False, city="Sydney", country="AU")
     result = run([listing], _profile_with_rc(["AU"], locations_allowed=["Sydney"]), today=TODAY)
     assert len(result.passed) == 1
+
+
+# ---------------------------------------------------------------------------
+# Title geo-hint: more descriptive flag when title implies a geo restriction
+# ---------------------------------------------------------------------------
+
+class TestTitleGeoHint:
+    """Unit tests for the _title_geo_hint helper."""
+
+    def test_emea_suffix_detected(self):
+        assert _title_geo_hint("Solutions Engineer - EMEA") == "EMEA"
+
+    def test_apac_detected(self):
+        assert _title_geo_hint("Sales Director APAC") == "APAC"
+
+    def test_latam_detected(self):
+        assert _title_geo_hint("Customer Success Manager / LATAM") == "LATAM"
+
+    def test_amer_detected(self):
+        assert _title_geo_hint("Head of DevRel - AMER") == "AMER"
+
+    def test_americas_detected(self):
+        assert _title_geo_hint("VP Engineering Americas") == "AMERICAS"
+
+    def test_anz_detected(self):
+        assert _title_geo_hint("Community Manager | ANZ") == "ANZ"
+
+    def test_dach_detected(self):
+        assert _title_geo_hint("Account Executive (DACH)") == "DACH"
+
+    def test_country_after_separator(self):
+        assert _title_geo_hint("Software Engineer - Germany") == "Germany"
+
+    def test_country_in_parens(self):
+        assert _title_geo_hint("Sales Manager (Germany)") == "Germany"
+
+    def test_country_as_last_word(self):
+        assert _title_geo_hint("Renewals Manager Germany") == "Germany"
+
+    def test_no_hint_plain_title(self):
+        assert _title_geo_hint("Senior Software Engineer") is None
+
+    def test_no_hint_remote_only(self):
+        assert _title_geo_hint("Principal Engineer (Remote)") is None
+
+    def test_no_false_positive_emea_substring(self):
+        # "EMEA" inside a longer word like a product name should not fire
+        assert _title_geo_hint("Account Manager") is None
+
+    def test_case_insensitive_region_code(self):
+        assert _title_geo_hint("Sales Engineer - emea") == "EMEA"
+
+    def test_uk_in_parens(self):
+        assert _title_geo_hint("Developer Advocate (UK)") == "Uk"
+
+
+class TestTitleGeoFlagIntegration:
+    """Integration tests: _passes_location emits the right flag for title geo hints."""
+
+    def test_emea_title_gets_specific_flag(self):
+        """Bare-Remote listing with EMEA in title → 'remote scope: title hints EMEA' flag."""
+        listing = _listing(
+            id="emea-1",
+            is_remote=True,
+            location_raw="Remote",
+            city=None,
+            region=None,
+            country=None,
+            title="Solutions Architect - EMEA",
+        )
+        result = run([listing], BASE_PROFILE, today=TODAY)
+        assert len(result.passed) == 1
+        flags = result.unknown_flags.get("emea-1", [])
+        assert any("title hints EMEA" in f for f in flags), f"flags were: {flags}"
+        assert "remote scope unclear" not in flags
+
+    def test_country_title_gets_specific_flag(self):
+        """Bare-Remote listing with country at end of title → specific flag."""
+        listing = _listing(
+            id="ger-1",
+            is_remote=True,
+            location_raw="Remote",
+            city=None,
+            region=None,
+            country=None,
+            title="Renewals Manager Germany",
+        )
+        result = run([listing], BASE_PROFILE, today=TODAY)
+        assert len(result.passed) == 1
+        flags = result.unknown_flags.get("ger-1", [])
+        assert any("title hints Germany" in f for f in flags), f"flags were: {flags}"
+
+    def test_plain_remote_title_gets_unclear_flag(self):
+        """Bare-Remote listing with no geo hint in title → standard 'remote scope unclear'."""
+        listing = _listing(
+            id="plain-1",
+            is_remote=True,
+            location_raw="Remote",
+            city=None,
+            region=None,
+            country=None,
+            title="Staff Software Engineer",
+        )
+        result = run([listing], BASE_PROFILE, today=TODAY)
+        assert len(result.passed) == 1
+        flags = result.unknown_flags.get("plain-1", [])
+        assert "remote scope unclear" in flags
+
+    def test_geo_hint_listing_still_passes_filter(self):
+        """Title geo hints never cause a drop — filtering behavior is unchanged."""
+        for title in [
+            "Account Executive - EMEA",
+            "Renewals Manager Germany",
+            "Sales Director APAC",
+        ]:
+            listing = _listing(
+                id=f"pass-{title[:4]}",
+                is_remote=True,
+                location_raw="Remote",
+                city=None,
+                region=None,
+                country=None,
+                title=title,
+            )
+            result = run([listing], BASE_PROFILE, today=TODAY)
+            assert len(result.passed) == 1, f"listing with title '{title}' was unexpectedly dropped"
+
+    def test_existing_remote_scope_unclear_still_works(self):
+        """test_remote_no_geo_gets_scope_unclear_flag still holds for plain Remote."""
+        listing = _listing(id="r1", is_remote=True, location_raw="Remote", title="Senior Engineer")
+        result = run([listing], BASE_PROFILE, today=TODAY)
+        assert len(result.passed) == 1
+        assert "remote scope unclear" in result.unknown_flags.get("r1", [])
