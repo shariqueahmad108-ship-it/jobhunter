@@ -2,18 +2,17 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by scoring-stage build iteration):
-  Phase 1 pipeline (Stages 1–4 + minimal Stage 7) is complete.
-  Stage 5 (scoring) is now complete:
-  - jobhunter.score.score() and score.run() implement the weighted-sum scorer with all six
-    components (skill_match, seniority_fit, compensation, location_fit, company_signal,
-    recency). Unknown fields score neutral (0.5). FX conversion and annualization use the
-    same logic as Stage 4. Deterministic and pure — no network calls.
-  - tests/test_score.py covers all Stage 5 acceptance criteria (52 tests).
-  Remaining gaps (Phase 2+):
-  - Stage 6 (rank/threshold): rank.py is a stub — implemented in rank-threshold branch.
-  - Stage 7 full: seen-state, "New this run" vs "Previously shown", JSON data file,
-    dismiss/undismiss CLI (Phase 3).
+<!-- Known gaps (updated by rank-threshold build iteration):
+  Stages 1–6 are now complete end-to-end.
+  Stage 6 (rank/threshold): rank.run() sorts ScoredResult best-first (score desc →
+    recency desc → id asc), assigns 1-based ranks to all results, and splits by
+    display_threshold into shortlist vs. below_threshold_count. The full pipeline
+    (pipeline.run()) now returns (list[ScoredResult], RunReport). The Markdown digest
+    renders scores, ranks, and reasons for each listing. Active weights appear in the
+    header. 17 tests in tests/test_rank.py cover all Stage 6 acceptance criteria.
+  Remaining gaps (Phase 3):
+  - Stage 7 full: seen-state ("New this run" vs "Previously shown"), JSON data file,
+    dismiss/undismiss CLI, max_shown cap on new section.
 -->
 
 # 02 — Functional Spec

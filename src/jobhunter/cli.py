@@ -59,9 +59,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     adapters = _build_adapters()
 
-    listings, unknown_flags, report = pipeline_run(profile, adapters)
+    results, report = pipeline_run(profile, adapters)
 
-    digest = render_markdown(listings, report, unknown_flags)
+    digest = render_markdown(results, report)
     print(digest)
     return 0
 

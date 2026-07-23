@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Phase 1 pipeline runner: ingest → normalize → dedupe → filter.
+"""Full pipeline runner: ingest → normalize → dedupe → filter → score → rank.
 
-Wires Stage 1–4 together. Scoring and ranking (Stages 5–6) are Phase 2.
+Wires all six stages together and returns ranked ScoredResult objects.
 
-See: specs/02-functional-spec.md §Stage 1–4
+See: specs/02-functional-spec.md §Stage 1–6
      specs/04-technical-plan.md §Architecture
 """
 
@@ -15,7 +15,9 @@ from typing import Optional
 from jobhunter import dedupe, normalize
 from jobhunter.filter import run as filter_run
 from jobhunter.ingest import SourceAdapter
-from jobhunter.model import JobListing, RunReport, SourceFailure
+from jobhunter.model import JobListing, RunReport, ScoredResult, SourceFailure
+from jobhunter.rank import run as rank_run
+from jobhunter.score import run as score_run
 
 
 def run(
@@ -23,17 +25,17 @@ def run(
     adapters: list[SourceAdapter],
     dismissed_ids: Optional[set[str]] = None,
     today: Optional[date] = None,
-) -> tuple[list[JobListing], dict[str, list[str]], RunReport]:
-    """Run stages 1–4: ingest → normalize → dedupe → filter.
+) -> tuple[list[ScoredResult], RunReport]:
+    """Run the full pipeline: ingest → normalize → dedupe → filter → score → rank.
 
     Args:
         profile:       Loaded profile dict (validated by load_profile).
         adapters:      Source adapter instances to query.
         dismissed_ids: Set of listing ids permanently dismissed by the user.
-        today:         Reference date for freshness filter (defaults to date.today()).
+        today:         Reference date for freshness and recency scoring.
 
     Returns:
-        (passed_listings, unknown_flags, report)
+        (shortlist, report) — shortlist is ranked, at-or-above-threshold ScoredResults.
     """
     run_at = datetime.now(timezone.utc).isoformat()
     queries = profile["queries"]
@@ -80,6 +82,21 @@ def run(
     filter_result = filter_run(deduped, profile, dismissed_ids=dismissed_ids, today=today)
     tally = filter_result.tally
 
+    # Stage 5: score surviving listings
+    scored = score_run(
+        filter_result.passed,
+        profile,
+        unknown_flags=filter_result.unknown_flags,
+        today=today,
+    )
+
+    # Stage 6: rank and apply display threshold
+    shortlist, below_threshold = rank_run(scored, profile)
+
+    # Populate active_weights for the run report header
+    weights_cfg: dict = profile.get("weights", {})
+    active_weights = {k: float(v) for k, v in weights_cfg.items() if float(v) > 0}
+
     report = RunReport(
         run_at=run_at,
         sources_used=sources_used,
@@ -95,7 +112,9 @@ def run(
         dropped_by_keyword=tally.by_keyword,
         dropped_by_age=tally.by_age,
         dropped_dismissed=tally.dismissed,
-        shown_new=len(filter_result.passed),
+        below_threshold=below_threshold,
+        shown_new=len(shortlist),
+        active_weights=active_weights,
     )
 
-    return filter_result.passed, filter_result.unknown_flags, report
+    return shortlist, report

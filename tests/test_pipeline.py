@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""End-to-end tests for the Phase 1 pipeline: ingest → normalize → dedupe → filter.
+"""End-to-end tests for the full pipeline: ingest → normalize → dedupe → filter → score → rank.
 
 Uses a FixtureAdapter that returns pre-built JobListing objects so no live network
-calls are made. Tests verify that the pipeline produces the expected filtered set,
-handles source failures gracefully, enforces max_requests_per_run, and that the
+calls are made. Tests verify that the pipeline produces the expected filtered and ranked
+set, handles source failures gracefully, enforces max_requests_per_run, and that the
 Markdown digest contains the expected content.
 
-See: specs/02-functional-spec.md §Stage 1–4, §Stage 7 (minimal)
+See: specs/02-functional-spec.md §Stage 1–7
 """
 
 from __future__ import annotations
@@ -147,9 +147,9 @@ class TestPipelineFiltering:
             salary=Salary(min=170000, max=200000, currency="AUD", period="year"),
         )
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert len(passed) == 1
-        assert passed[0].id == "pass-1"
+        assert passed[0].listing.id == "pass-1"
 
     def test_sydney_based_remote_role_is_dropped(self):
         """A listing labelled remote but with Sydney in the parsed location is dropped."""
@@ -161,7 +161,7 @@ class TestPipelineFiltering:
             location_raw="Remote — Sydney-based",
         )
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert passed == []
         assert report.dropped_by_location == 1
 
@@ -169,7 +169,7 @@ class TestPipelineFiltering:
         """A fully-remote listing with no excluded location is kept."""
         listing = _listing(id="remote-ok", is_remote=True, city=None, country="AU")
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert len(passed) == 1
 
     def test_junior_dropped_by_seniority(self):
@@ -180,7 +180,7 @@ class TestPipelineFiltering:
             is_remote=True,
         )
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert passed == []
         assert report.dropped_by_seniority == 1
 
@@ -192,7 +192,7 @@ class TestPipelineFiltering:
             salary=Salary(min=120000, max=140000, currency="AUD", period="year"),
         )
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert passed == []
         assert report.dropped_by_salary == 1
 
@@ -200,7 +200,7 @@ class TestPipelineFiltering:
         """A listing older than max_age_days is dropped."""
         listing = _listing(id="stale-1", is_remote=True, posted_at="2026-05-01")
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert passed == []
         assert report.dropped_by_age == 1
 
@@ -208,7 +208,7 @@ class TestPipelineFiltering:
         """A listing with PHP in the title is dropped (title scope)."""
         listing = _listing(id="php-dev", title="PHP Developer", is_remote=True)
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert passed == []
         assert report.dropped_by_keyword == 1
 
@@ -221,21 +221,21 @@ class TestPipelineFiltering:
             is_remote=True,
         )
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert len(passed) == 1
 
     def test_unknown_salary_kept_by_default(self):
         """A listing with no salary is kept when keep_unknown_salary is True."""
         listing = _listing(id="no-sal", is_remote=True, salary=None)
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert len(passed) == 1
 
     def test_unknown_seniority_kept(self):
         """A listing with no inferred seniority is kept (unknown-data policy)."""
         listing = _listing(id="no-sen", is_remote=True, seniority=None)
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
         assert len(passed) == 1
 
     def test_mixed_listings_produce_expected_filtered_set(self):
@@ -251,9 +251,9 @@ class TestPipelineFiltering:
             _listing(id="stale", is_remote=True, posted_at="2026-04-01", source_id="6"),
         ]
         adapter = _FixtureAdapter(listings)
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
-        surviving_ids = {listing.id for listing in passed}
+        surviving_ids = {result.listing.id for result in passed}
         assert surviving_ids == {"ok-1", "ok-2"}
         assert report.dropped_by_location == 1
         assert report.dropped_by_seniority == 1
@@ -272,19 +272,19 @@ class TestPipelineDedupe:
         listing_a = _listing(id="dup-1", source_id="a1")
         listing_b = _listing(id="dup-1", source_id="b99")
         adapter = _FixtureAdapter([listing_a, listing_b])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
         assert len(passed) == 1
         assert report.after_dedupe == 1
         assert report.ingested_count == 2
-        assert len(passed[0].sources) == 2
+        assert len(passed[0].listing.sources) == 2
 
     def test_distinct_listings_stay_separate(self):
         """Two different roles remain separate after dedupe."""
         listing_a = _listing(id="role-a", company="Alpha", source_id="1")
         listing_b = _listing(id="role-b", company="Beta", source_id="2")
         adapter = _FixtureAdapter([listing_a, listing_b])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
         assert report.after_dedupe == 2
 
@@ -301,11 +301,11 @@ class TestPipelineSourceHandling:
         ok_listing = _listing(id="ok", is_remote=True)
         ok_adapter = _FixtureAdapter([ok_listing])
 
-        passed, flags, report = pipeline_run(BASE_PROFILE, [failing, ok_adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [failing, ok_adapter], today=TODAY)
 
         assert len(report.sources_failed) == 1
         assert report.sources_failed[0].name == "fixture"
-        assert "ok" in {listing.id for listing in passed}
+        assert "ok" in {result.listing.id for result in passed}
 
     def test_run_report_counts_correct(self):
         """RunReport counters reflect actual pipeline execution."""
@@ -314,7 +314,7 @@ class TestPipelineSourceHandling:
             _listing(id="dropped", is_remote=True, posted_at="2025-01-01", source_id="2"),
         ]
         adapter = _FixtureAdapter(listings)
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
         assert report.ingested_count == 2
         assert report.after_dedupe == 2
@@ -325,7 +325,7 @@ class TestPipelineSourceHandling:
 
     def test_no_adapters_produces_empty_run(self):
         """With no adapters, the run completes with zero listings."""
-        passed, flags, report = pipeline_run(BASE_PROFILE, [], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [], today=TODAY)
 
         assert passed == []
         assert report.ingested_count == 0
@@ -351,7 +351,7 @@ class TestPipelineRequestCap:
             },
         }
         adapter = _FixtureAdapter([])
-        passed, flags, report = pipeline_run(profile, [adapter], today=TODAY)
+        passed, report = pipeline_run(profile, [adapter], today=TODAY)
 
         assert report.requests_made == 2
         assert report.truncated is True
@@ -368,7 +368,7 @@ class TestPipelineRequestCap:
             },
         }
         adapter = _FixtureAdapter([])
-        passed, flags, report = pipeline_run(profile, [adapter], today=TODAY)
+        passed, report = pipeline_run(profile, [adapter], today=TODAY)
 
         assert report.requests_made == 1
         assert report.truncated is False
@@ -384,16 +384,16 @@ class TestRenderMarkdown:
         """Markdown digest includes run-at, source, and tally information."""
         listing = _listing(id="abc" + "0" * 61, is_remote=True)  # deterministic id
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
-        md = render_markdown(passed, report, flags)
+        md = render_markdown(passed, report)
         assert "# JobHunter" in md
         assert "Run at:" in md
         assert "fixture" in md
         assert "Filter tally:" in md
 
     def test_listing_row_contains_required_fields(self):
-        """Each listing row has id, title, company, location, salary, sources."""
+        """Each listing row has rank, id, title, company, location, salary, score, sources."""
         listing = _listing(
             id="deadbeef" + "a" * 56,
             title="Senior Python Engineer",
@@ -403,9 +403,9 @@ class TestRenderMarkdown:
             source_id="42",
         )
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
-        md = render_markdown(passed, report, flags)
+        md = render_markdown(passed, report)
         assert "`deadbeef`" in md
         assert "Senior Python Engineer" in md
         assert "Atlassian" in md
@@ -413,14 +413,16 @@ class TestRenderMarkdown:
         assert "AUD" in md
         assert "180,000" in md
         assert "example.com/job/42" in md
+        assert "Score:" in md
+        assert "#1" in md
 
     def test_empty_result_shows_no_roles_message(self):
         """When no listings survive, the digest says so."""
         listing = _listing(id="stale", posted_at="2020-01-01", is_remote=True)
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
-        md = render_markdown(passed, report, flags)
+        md = render_markdown(passed, report)
         assert "No roles matched" in md
 
     def test_unknown_flags_appear_in_digest(self):
@@ -428,9 +430,9 @@ class TestRenderMarkdown:
         # Fully remote with no geographic info → "remote scope unclear"
         listing = _listing(id="ambig" + "0" * 59, is_remote=True, city=None, country=None)
         adapter = _FixtureAdapter([listing])
-        passed, flags, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
-        md = render_markdown(passed, report, flags)
+        md = render_markdown(passed, report)
         assert "remote scope unclear" in md
 
     def test_truncation_noted_in_digest(self):
@@ -445,16 +447,16 @@ class TestRenderMarkdown:
             },
         }
         adapter = _FixtureAdapter([])
-        passed, flags, report = pipeline_run(profile, [adapter], today=TODAY)
+        passed, report = pipeline_run(profile, [adapter], today=TODAY)
 
-        md = render_markdown(passed, report, flags)
+        md = render_markdown(passed, report)
         assert "truncated" in md.lower()
 
     def test_source_failure_noted_in_digest(self):
         """When a source fails, the digest names it."""
         failing = _FixtureAdapter([], fail=True)
-        passed, flags, report = pipeline_run(BASE_PROFILE, [failing], today=TODAY)
+        passed, report = pipeline_run(BASE_PROFILE, [failing], today=TODAY)
 
-        md = render_markdown(passed, report, flags)
+        md = render_markdown(passed, report)
         assert "Sources failed:" in md
         assert "fixture" in md
