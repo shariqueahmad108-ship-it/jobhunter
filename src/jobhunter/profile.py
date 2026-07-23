@@ -33,6 +33,7 @@ _TOP_LEVEL_KEYS = {
     "weights",
     "output",
     "search_mode",
+    "sources",
 }
 
 # Posture presets (spec 02 §Search posture): defaults only — explicit values win.
@@ -168,6 +169,68 @@ def _validate_queries(queries: dict) -> None:
             _expect_type(url, str, f"queries.feeds[{i}].url")
             if not url.strip():
                 raise ProfileError(f"queries.feeds[{i}].url: must not be empty")
+
+
+def _validate_sources(sources: dict) -> None:
+    allowed = {"adzuna", "ats_watchlist", "feeds", "remotive", "remoteok", "careerjet"}
+    _unknown_keys(sources, allowed, "sources")
+
+    adzuna = sources.get("adzuna")
+    if adzuna is not None:
+        _expect_type(adzuna, dict, "sources.adzuna")
+        _unknown_keys(adzuna, {"enabled", "country"}, "sources.adzuna")
+        if "enabled" in adzuna:
+            _expect_type(adzuna["enabled"], bool, "sources.adzuna.enabled")
+        if "country" in adzuna and adzuna["country"] is not None:
+            _expect_type(adzuna["country"], str, "sources.adzuna.country")
+
+    ats_watchlist = sources.get("ats_watchlist")
+    if ats_watchlist is not None:
+        _expect_type(ats_watchlist, list, "sources.ats_watchlist")
+        for i, entry in enumerate(ats_watchlist):
+            _expect_type(entry, dict, f"sources.ats_watchlist[{i}]")
+            _unknown_keys(entry, {"ats", "slug", "name"}, f"sources.ats_watchlist[{i}]")
+            ats_type = _require(entry, "ats", f"sources.ats_watchlist[{i}]")
+            _expect_type(ats_type, str, f"sources.ats_watchlist[{i}].ats")
+            if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
+                raise ProfileError(
+                    f"sources.ats_watchlist[{i}].ats: must be one of "
+                    f"{sorted(_SUPPORTED_ATS_TYPES)}, got {ats_type!r}"
+                )
+            slug = _require(entry, "slug", f"sources.ats_watchlist[{i}]")
+            _expect_type(slug, str, f"sources.ats_watchlist[{i}].slug")
+            if not slug.strip():
+                raise ProfileError(f"sources.ats_watchlist[{i}].slug: must not be empty")
+            if "name" in entry and entry["name"] is not None:
+                _expect_type(entry["name"], str, f"sources.ats_watchlist[{i}].name")
+
+    feeds = sources.get("feeds")
+    if feeds is not None:
+        _expect_type(feeds, list, "sources.feeds")
+        for i, entry in enumerate(feeds):
+            _expect_type(entry, dict, f"sources.feeds[{i}]")
+            _unknown_keys(entry, {"name", "url"}, f"sources.feeds[{i}]")
+            name_val = _require(entry, "name", f"sources.feeds[{i}]")
+            _expect_type(name_val, str, f"sources.feeds[{i}].name")
+            url_val = _require(entry, "url", f"sources.feeds[{i}]")
+            _expect_type(url_val, str, f"sources.feeds[{i}].url")
+
+    remotive = sources.get("remotive")
+    if remotive is not None:
+        _expect_type(remotive, dict, "sources.remotive")
+        _unknown_keys(remotive, {"enabled", "categories"}, "sources.remotive")
+        if "enabled" in remotive:
+            _expect_type(remotive["enabled"], bool, "sources.remotive.enabled")
+        if "categories" in remotive:
+            _expect_list_of_strings(remotive["categories"], "sources.remotive.categories")
+
+    for src_name in ("remoteok", "careerjet"):
+        cfg = sources.get(src_name)
+        if cfg is not None:
+            _expect_type(cfg, dict, f"sources.{src_name}")
+            _unknown_keys(cfg, {"enabled"}, f"sources.{src_name}")
+            if "enabled" in cfg:
+                _expect_type(cfg["enabled"], bool, f"sources.{src_name}.enabled")
 
 
 def _validate_seniority_bounds(seniority: dict, path: str) -> None:
@@ -445,6 +508,8 @@ def load_profile(path: str | Path) -> dict:
     _validate_preferences(_require(raw, "preferences", "<profile>"))
     _validate_weights(_require(raw, "weights", "<profile>"))
     _validate_output(_require(raw, "output", "<profile>"))
+    if "sources" in raw:
+        _validate_sources(raw["sources"])
 
     # Apply posture preset FIRST (fills only unset knobs), then schema defaults
     if mode is not None:
@@ -479,5 +544,7 @@ def load_profile(path: str | Path) -> dict:
     out.setdefault("show_previously_seen", True)
     out.setdefault("format", "markdown")
     out.setdefault("data_format", "json")
+
+    raw.setdefault("sources", {})
 
     return raw

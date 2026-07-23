@@ -827,3 +827,156 @@ def test_effective_fx_profile_override_wins() -> None:
     prof = {"hard_requirements": {"salary_currency": "AUD", "fx_rates": {"USD": 1.42}}}
     fx = {"base": "AUD", "rates": {"USD": 1.5}}
     assert effective_fx_rates(prof, fx)["USD"] == 1.42
+
+
+# ---------------------------------------------------------------------------
+# sources: block (profile-driven-sources)
+# ---------------------------------------------------------------------------
+
+
+def test_sources_absent_defaults_to_empty(tmp_path: Path) -> None:
+    """sources: key is optional; defaults to {} when absent."""
+    r = load_profile(_write(tmp_path, _minimal()))
+    assert r.get("sources") == {}
+
+
+def test_sources_empty_dict_loads(tmp_path: Path) -> None:
+    """sources: {} is valid."""
+    data = _minimal()
+    data["sources"] = {}
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"] == {}
+
+
+def test_sources_adzuna_enabled_true(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"adzuna": {"enabled": True, "country": "au"}}
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["adzuna"]["enabled"] is True
+    assert r["sources"]["adzuna"]["country"] == "au"
+
+
+def test_sources_adzuna_enabled_false(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"adzuna": {"enabled": False}}
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["adzuna"]["enabled"] is False
+
+
+def test_sources_adzuna_country_optional(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"adzuna": {"enabled": True}}
+    load_profile(_write(tmp_path, data))  # must not raise
+
+
+def test_sources_adzuna_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"adzuna": {"enabled": True, "tier": "free"}}
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_adzuna_enabled_not_bool_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"adzuna": {"enabled": "yes"}}
+    with pytest.raises(ProfileError, match="sources.adzuna.enabled"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_ats_watchlist_valid(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {
+        "ats_watchlist": [
+            {"ats": "greenhouse", "slug": "gitlab", "name": "GitLab"},
+            {"ats": "lever", "slug": "canonical"},
+        ]
+    }
+    r = load_profile(_write(tmp_path, data))
+    assert len(r["sources"]["ats_watchlist"]) == 2
+
+
+def test_sources_ats_watchlist_unsupported_ats_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"ats_watchlist": [{"ats": "workday", "slug": "red-hat"}]}
+    with pytest.raises(ProfileError, match="ats_watchlist"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_ats_watchlist_empty_slug_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"ats_watchlist": [{"ats": "greenhouse", "slug": "  "}]}
+    with pytest.raises(ProfileError, match="slug"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_ats_watchlist_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"ats_watchlist": [{"ats": "greenhouse", "slug": "x", "extra": 1}]}
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_feeds_valid(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {
+        "feeds": [{"name": "iworkfornsw", "url": "https://example.com/feed.rss"}]
+    }
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["feeds"][0]["name"] == "iworkfornsw"
+
+
+def test_sources_feeds_missing_url_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"feeds": [{"name": "myfeed"}]}
+    with pytest.raises(ProfileError, match="url"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_feeds_missing_name_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"feeds": [{"url": "https://example.com/feed.rss"}]}
+    with pytest.raises(ProfileError, match="name"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_feeds_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"feeds": [{"name": "x", "url": "https://x.com", "auth": "token"}]}
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_remotive_valid(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"remotive": {"enabled": False, "categories": ["devrel"]}}
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["remotive"]["enabled"] is False
+
+
+def test_sources_remotive_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"remotive": {"enabled": False, "region": "us"}}
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_remoteok_and_careerjet_valid(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"remoteok": {"enabled": False}, "careerjet": {"enabled": False}}
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["remoteok"]["enabled"] is False
+    assert r["sources"]["careerjet"]["enabled"] is False
+
+
+def test_sources_remoteok_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"remoteok": {"enabled": False, "country": "us"}}
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {"linkedin": {"enabled": True}}
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(_write(tmp_path, data))
