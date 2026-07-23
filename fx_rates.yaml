@@ -1,0 +1,12 @@
+# Global FX rates — shared by ALL profiles (market facts, not preferences).
+# Semantics: 1 unit of <code> = <rate> units of `base`. Profiles whose
+# salary_currency differs from base get cross-rates computed automatically.
+# A profile may still override any single currency in its own fx_rates block.
+# Update these occasionally; precision beyond ~2 decimals is pointless for
+# salary-floor comparisons.
+base: "AUD"
+rates:
+  USD: 1.50
+  NZD: 0.93
+  GBP: 1.90
+  EUR: 1.65

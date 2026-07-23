@@ -143,8 +143,9 @@ Configurable hard filters:
 - **Compensation floor:** applied only when the salary is **comparable**: same currency as
   `salary_currency` (or convertible — see below) and annualizable. Comparison rule:
   annualize (`day × 260`, `hour × 2080`, `month × 12`), convert currency using the pinned rates
-  table in the profile (`fx_rates`, e.g. `USD: 1.5` meaning 1 USD = 1.5 AUD); if the currency has
-  no pinned rate, the salary is treated as **unknown** (kept per policy), not dropped. Drop only
+  from the GLOBAL `fx_rates.yaml` (shared by all profiles; cross-rated into the profile's
+  `salary_currency`; per-currency profile overrides win); if the currency has
+  no pinned rate anywhere, the salary is treated as **unknown** (kept per policy), not dropped. Drop only
   when the comparable annualized max < `salary_floor`.
 - **Employment type:** drop listings whose `employment` is in `exclude_employment`
   (e.g. `[contract, internship]`). Unknown employment is kept.

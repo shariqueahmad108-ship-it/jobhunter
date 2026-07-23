@@ -22,7 +22,7 @@ from pathlib import Path
 
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .pipeline import run as pipeline_run
-from .profile import ProfileError, load_profile
+from .profile import ProfileError, effective_fx_rates, load_fx_rates, load_profile
 from .state import (
     dismiss_ids,
     load_state,
@@ -95,6 +95,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except ValueError as e:
         print(f"Error loading state: {e}", file=sys.stderr)
         return 1
+
+    # FX rates are global (fx_rates.yaml at repo root); the profile may override
+    # individual currencies. Injected here so filter/score read one merged table.
+    profile["hard_requirements"]["fx_rates"] = effective_fx_rates(
+        profile, load_fx_rates()
+    )
 
     adapters = _build_adapters(profile)
 

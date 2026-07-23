@@ -787,3 +787,43 @@ def test_remote_countries_allowed_empty_rejected(tmp_path: Path) -> None:
     data["hard_requirements"] = {**data["hard_requirements"], "remote_countries_allowed": []}
     with pytest.raises(ProfileError, match="remote_countries_allowed"):
         load_profile(_write(tmp_path, data))
+
+
+# ---------------------------------------------------------------------------
+# Global FX rates (fx_rates.yaml)
+# ---------------------------------------------------------------------------
+
+from jobhunter.profile import effective_fx_rates, load_fx_rates
+
+
+def test_load_fx_rates_missing_file(tmp_path: Path) -> None:
+    fx = load_fx_rates(tmp_path / "nope.yaml")
+    assert fx == {"base": None, "rates": {}}
+
+
+def test_load_fx_rates_parses(tmp_path: Path) -> None:
+    f = tmp_path / "fx.yaml"
+    f.write_text("base: AUD\nrates:\n  USD: 1.5\n  eur: 1.65\n")
+    fx = load_fx_rates(f)
+    assert fx["base"] == "AUD" and fx["rates"]["USD"] == 1.5 and fx["rates"]["EUR"] == 1.65
+
+
+def test_effective_fx_same_base() -> None:
+    prof = {"hard_requirements": {"salary_currency": "AUD"}}
+    fx = {"base": "AUD", "rates": {"USD": 1.5, "EUR": 1.65}}
+    assert effective_fx_rates(prof, fx) == {"USD": 1.5, "EUR": 1.65}
+
+
+def test_effective_fx_cross_rate() -> None:
+    """USD-target profile: 1 EUR = 1.65 AUD, 1 USD = 1.5 AUD => 1 EUR = 1.1 USD."""
+    prof = {"hard_requirements": {"salary_currency": "USD"}}
+    fx = {"base": "AUD", "rates": {"USD": 1.5, "EUR": 1.65}}
+    merged = effective_fx_rates(prof, fx)
+    assert merged["EUR"] == pytest.approx(1.1)
+    assert merged["AUD"] == pytest.approx(1 / 1.5)
+
+
+def test_effective_fx_profile_override_wins() -> None:
+    prof = {"hard_requirements": {"salary_currency": "AUD", "fx_rates": {"USD": 1.42}}}
+    fx = {"base": "AUD", "rates": {"USD": 1.5}}
+    assert effective_fx_rates(prof, fx)["USD"] == 1.42

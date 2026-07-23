@@ -348,6 +348,52 @@ def _validate_output(output: dict) -> None:
             )
 
 
+def load_fx_rates(path: str | Path = "fx_rates.yaml") -> dict:
+    """Load the GLOBAL fx-rates file: {"base": str, "rates": {code: rate}}.
+
+    Rates are market facts shared by all profiles (spec 03 §Global config).
+    Missing file => empty rates (profiles fall back to their own fx_rates).
+    """
+    path = Path(path)
+    if not path.exists():
+        return {"base": None, "rates": {}}
+    with open(path) as f:
+        raw = yaml.safe_load(f) or {}
+    base = raw.get("base")
+    rates = raw.get("rates") or {}
+    if not isinstance(rates, dict):
+        raise ProfileError("fx_rates.yaml: 'rates' must be a mapping")
+    for k, v in rates.items():
+        if not isinstance(k, str) or not _is_number(v) or v <= 0:
+            raise ProfileError(f"fx_rates.yaml: bad rate {k!r}: {v!r}")
+    return {"base": base, "rates": {k.upper(): float(v) for k, v in rates.items()}}
+
+
+def effective_fx_rates(profile: dict, global_fx: dict) -> dict:
+    """Merge global fx rates into the profile's target currency.
+
+    Global rates are 1 <code> = r units of global base. If the profile's
+    salary_currency equals the base, use them directly; otherwise cross-rate
+    via the base (rate into target = r(code->base) / r(target->base)).
+    Per-currency entries in the profile's own fx_rates block always win.
+    """
+    hr = profile.get("hard_requirements", {})
+    target = (hr.get("salary_currency") or "").upper()
+    base = (global_fx.get("base") or "").upper()
+    rates = dict(global_fx.get("rates") or {})
+    merged: dict = {}
+    if target and rates:
+        if target == base:
+            merged = dict(rates)
+        elif target in rates:
+            t_rate = rates[target]  # 1 target = t_rate base
+            merged = {c: r / t_rate for c, r in rates.items() if c != target}
+            merged[base] = 1.0 / t_rate
+    overrides = hr.get("fx_rates") or {}
+    merged.update({k.upper(): float(v) for k, v in overrides.items()})
+    return merged
+
+
 def load_profile(path: str | Path) -> dict:
     """Load and validate a profile.yaml.
 

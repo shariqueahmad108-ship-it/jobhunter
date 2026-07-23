@@ -91,8 +91,11 @@ hard_requirements:               # STAGE 4 — any failure drops the listing; un
     management: {min: string, max: string | null} | null
   salary_floor:      number | null   # null = no floor
   salary_currency:   string          # req if salary_floor set; ISO 4217
-  fx_rates:          map<string, number>   # pinned rates INTO salary_currency, e.g. {USD: 1.5};
-                                           # currencies absent here are treated as unknown salary
+  fx_rates:          map<string, number>   # OPTIONAL per-currency OVERRIDES only. The primary
+                                           #   rate table is GLOBAL (fx_rates.yaml at repo root,
+                                           #   shared by all profiles — market facts, not
+                                           #   preferences); cross-rated into salary_currency.
+                                           #   Currencies absent everywhere => unknown salary
   keep_unknown_salary: boolean     # default true — don't drop listings with no comparable salary
   exclude_employment: [enum]       # default []; e.g. [contract, internship]
   exclude_keywords:                # deal-breakers; word-boundary, case-insensitive, scoped
