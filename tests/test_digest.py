@@ -14,10 +14,18 @@ See: specs/02-functional-spec.md §Stage 7
 
 from __future__ import annotations
 
+import csv as _csv
+import io as _io
 import json
 from datetime import date
 
-from jobhunter.digest import render_html, render_json_data, render_markdown, result_to_dict
+from jobhunter.digest import (
+    render_csv_data,
+    render_html,
+    render_json_data,
+    render_markdown,
+    result_to_dict,
+)
 from jobhunter.model import (
     JobListing,
     Location,
@@ -487,3 +495,119 @@ def test_digest_header_names_search_mode():
 def test_digest_header_mode_none_when_unset():
     md = render_markdown([], _make_report())
     assert "Mode: none" in md
+
+
+# ---------------------------------------------------------------------------
+# render_csv_data
+# ---------------------------------------------------------------------------
+
+
+def test_render_csv_data_header_row() -> None:
+    csv_str = render_csv_data([])
+    lines = csv_str.strip().splitlines()
+    assert len(lines) == 1
+    header = lines[0]
+    for col in ("id", "rank", "score", "title", "company", "salary_min", "is_remote"):
+        assert col in header, f"expected column {col!r} in CSV header"
+
+
+def test_render_csv_data_single_result() -> None:
+    listing = _make_listing(idx=1)
+    result = _make_result(listing, rank=1, score=75.0)
+
+    csv_str = render_csv_data([result])
+    lines = csv_str.strip().splitlines()
+    assert len(lines) == 2  # header + 1 data row
+
+    data_row = lines[1]
+    assert listing.id[:8] in data_row or listing.id in data_row
+    assert "75.0" in data_row
+    assert "Senior Engineer" in data_row
+    assert "Acme Corp" in data_row
+    assert "True" in data_row  # is_remote
+
+
+def test_render_csv_data_includes_previously_seen() -> None:
+    new_results, prev_results = _two_results()
+
+    csv_str = render_csv_data(new_results, prev_results)
+    lines = csv_str.strip().splitlines()
+    assert len(lines) == 3  # header + 2 data rows
+
+    body = "\n".join(lines[1:])
+    assert new_results[0].listing.title in body
+    assert prev_results[0].listing.title in body
+
+
+def test_render_csv_data_no_previously_seen() -> None:
+    listing = _make_listing(idx=1)
+    result = _make_result(listing)
+
+    csv_str = render_csv_data([result])
+    lines = csv_str.strip().splitlines()
+    assert len(lines) == 2
+
+
+def test_render_csv_data_empty() -> None:
+    csv_str = render_csv_data([])
+    lines = csv_str.strip().splitlines()
+    assert len(lines) == 1  # header only
+
+
+def test_render_csv_data_salary_fields() -> None:
+    listing = _make_listing(
+        idx=1, salary_min=150_000, salary_max=200_000, currency="AUD", period="year"
+    )
+    result = _make_result(listing)
+
+    csv_str = render_csv_data([result])
+    reader = _csv.DictReader(_io.StringIO(csv_str))
+    row = next(reader)
+    assert float(row["salary_min"]) == 150_000
+    assert float(row["salary_max"]) == 200_000
+    assert row["salary_currency"] == "AUD"
+    assert row["salary_period"] == "year"
+
+
+def test_render_csv_data_null_salary() -> None:
+    listing = _make_listing(idx=2)
+    listing.salary = None
+    result = _make_result(listing)
+
+    csv_str = render_csv_data([result])
+    reader = _csv.DictReader(_io.StringIO(csv_str))
+    row = next(reader)
+    assert row["salary_min"] == ""
+    assert row["salary_max"] == ""
+    assert row["salary_currency"] == ""
+
+
+def test_render_csv_data_unknown_flags_pipe_joined() -> None:
+    listing = _make_listing(idx=1)
+    result = _make_result(listing)
+    result.unknown_flags = ["level unclear", "remote scope unclear"]
+
+    csv_str = render_csv_data([result])
+    assert "level unclear|remote scope unclear" in csv_str
+
+
+def test_render_csv_data_components_json() -> None:
+    listing = _make_listing(idx=1)
+    result = _make_result(listing)
+
+    csv_str = render_csv_data([result])
+    reader = _csv.DictReader(_io.StringIO(csv_str))
+    row = next(reader)
+    components = json.loads(row["components"])
+    assert len(components) == 2
+    assert components[0]["name"] == "skill_match"
+    assert components[0]["sub"] == 0.8
+
+
+def test_render_csv_data_sources_pipe_joined() -> None:
+    listing = _make_listing(idx=1, source_url="https://example.com/job/1")
+    result = _make_result(listing)
+
+    csv_str = render_csv_data([result])
+    assert "adzuna" in csv_str
+    assert "https://example.com/job/1" in csv_str

@@ -20,7 +20,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from .digest import render_html, render_json_data, render_markdown
+from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .pipeline import run as pipeline_run
 from .profile import ProfileError, load_profile
 from .state import (
@@ -98,6 +98,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     max_shown = int(output_cfg.get("max_shown", 25))
     show_prev = bool(output_cfg.get("show_previously_seen", True))
     fmt = str(output_cfg.get("format", "markdown"))  # markdown | html | both
+    data_fmt = str(output_cfg.get("data_format", "json"))  # json | csv | both
 
     new_results, prev_results = partition_results(results, state)
 
@@ -117,14 +118,24 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # same-day runs of different profiles never overwrite each other.
     slug = f"{today}-{slug_suffix}" if slug_suffix else today
 
-    # Always write the JSON data file (machine-readable companion).
-    json_path = digest_dir / f"{slug}.json"
-    json_data = render_json_data(new_results, prev_for_render)
-    try:
-        json_path.write_text(json_data, encoding="utf-8")
-        print(f"Data file: {json_path}", file=sys.stderr)
-    except OSError as e:
-        print(f"Warning: could not write data file {json_path}: {e}", file=sys.stderr)
+    # Write data file(s) in the configured format(s).
+    if data_fmt in ("json", "both"):
+        json_path = digest_dir / f"{slug}.json"
+        json_data = render_json_data(new_results, prev_for_render)
+        try:
+            json_path.write_text(json_data, encoding="utf-8")
+            print(f"Data file: {json_path}", file=sys.stderr)
+        except OSError as e:
+            print(f"Warning: could not write data file {json_path}: {e}", file=sys.stderr)
+
+    if data_fmt in ("csv", "both"):
+        csv_path = digest_dir / f"{slug}.csv"
+        csv_data = render_csv_data(new_results, prev_for_render)
+        try:
+            csv_path.write_text(csv_data, encoding="utf-8")
+            print(f"CSV data file: {csv_path}", file=sys.stderr)
+        except OSError as e:
+            print(f"Warning: could not write CSV file {csv_path}: {e}", file=sys.stderr)
 
     # Render and emit digest in the configured format(s).
     if fmt in ("markdown", "both"):

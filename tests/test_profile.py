@@ -92,6 +92,7 @@ def test_defaults_applied(tmp_path: Path) -> None:
     assert out["max_shown"] == 25
     assert out["show_previously_seen"] is True
     assert out["format"] == "markdown"
+    assert out["data_format"] == "json"
 
 
 def test_exclude_keywords_scope_default(tmp_path: Path) -> None:
@@ -436,6 +437,33 @@ def test_invalid_output_format(tmp_path: Path) -> None:
         load_profile(p)
 
 
+def test_output_data_format_valid_values(tmp_path: Path) -> None:
+    """All three output.data_format values (json, csv, both) are accepted."""
+    for dfmt in ("json", "csv", "both"):
+        data = _minimal()
+        data["output"] = {"data_format": dfmt}
+        p = _write(tmp_path, data)
+        result = load_profile(p)
+        assert result["output"]["data_format"] == dfmt
+
+
+def test_output_data_format_default_is_json(tmp_path: Path) -> None:
+    """output.data_format defaults to 'json' when omitted."""
+    data = _minimal()
+    data["output"] = {}
+    p = _write(tmp_path, data)
+    result = load_profile(p)
+    assert result["output"]["data_format"] == "json"
+
+
+def test_invalid_output_data_format(tmp_path: Path) -> None:
+    data = _minimal()
+    data["output"] = {"data_format": "xml"}
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError, match="data_format"):
+        load_profile(p)
+
+
 # ---------------------------------------------------------------------------
 # Type errors
 # ---------------------------------------------------------------------------
@@ -587,8 +615,11 @@ def test_negative_weight_rejected(tmp_path: Path) -> None:
 def test_bool_salary_floor_rejected(tmp_path: Path) -> None:
     """isinstance(True, int) must not let booleans pass number validation."""
     prof = _minimal()
-    prof["hard_requirements"] = {**prof["hard_requirements"], "salary_floor": True,
-                                 "salary_currency": "AUD"}
+    prof["hard_requirements"] = {
+        **prof["hard_requirements"],
+        "salary_floor": True,
+        "salary_currency": "AUD",
+    }
     with pytest.raises(ProfileError, match="salary_floor"):
         load_profile(_write(tmp_path, prof))
 
@@ -620,8 +651,8 @@ def test_search_mode_preset_fills_unset_knobs(tmp_path: Path) -> None:
 def test_search_mode_explicit_values_win(tmp_path: Path) -> None:
     data = _minimal({"search_mode": "passive_employed", "output": {"display_threshold": 60}})
     prof = load_profile(_write(tmp_path, data))
-    assert prof["output"]["display_threshold"] == 60      # explicit beats preset (70)
-    assert prof["output"]["max_shown"] == 10              # preset fills the unset knob
+    assert prof["output"]["display_threshold"] == 60  # explicit beats preset (70)
+    assert prof["output"]["max_shown"] == 10  # preset fills the unset knob
 
 
 def test_search_mode_absent_uses_schema_defaults(tmp_path: Path) -> None:
@@ -638,16 +669,20 @@ def test_search_mode_invalid_rejected(tmp_path: Path) -> None:
 
 def test_require_keywords_validated_and_defaulted(tmp_path: Path) -> None:
     data = _minimal()
-    data["hard_requirements"] = {**data["hard_requirements"],
-                                 "require_keywords": [{"term": "cookery"}]}
+    data["hard_requirements"] = {
+        **data["hard_requirements"],
+        "require_keywords": [{"term": "cookery"}],
+    }
     prof = load_profile(_write(tmp_path, data))
     assert prof["hard_requirements"]["require_keywords"][0]["scope"] == "requirements"
 
 
 def test_require_keywords_bad_scope_rejected(tmp_path: Path) -> None:
     data = _minimal()
-    data["hard_requirements"] = {**data["hard_requirements"],
-                                 "require_keywords": [{"term": "x", "scope": "everywhere"}]}
+    data["hard_requirements"] = {
+        **data["hard_requirements"],
+        "require_keywords": [{"term": "x", "scope": "everywhere"}],
+    }
     with pytest.raises(ProfileError, match="require_keywords"):
         load_profile(_write(tmp_path, data))
 
