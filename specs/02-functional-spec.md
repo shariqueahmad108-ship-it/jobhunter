@@ -2,17 +2,16 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by phase1-cli-digest build iteration):
-  Phase 1 pipeline (Stages 1–4 + minimal Stage 7) is now complete:
-  - jobhunter.pipeline.run() wires ingest → normalize → dedupe → filter, enforces
-    max_requests_per_run, records truncation, and returns (passed, unknown_flags, RunReport).
-  - jobhunter.digest.render_markdown() emits a plain Markdown list of surviving roles
-    plus the full run report tally (by_location, by_seniority, by_salary, by_employment,
-    by_keyword, by_age, dismissed). Unknown-field flags appear inline per listing.
-  - CLI `jobhunter run` loads the profile, instantiates configured adapters (Adzuna
-    when ADZUNA_APP_ID + ADZUNA_APP_KEY are set), runs the pipeline, and prints the digest.
+<!-- Known gaps (updated by scoring-stage build iteration):
+  Phase 1 pipeline (Stages 1–4 + minimal Stage 7) is complete.
+  Stage 5 (scoring) is now complete:
+  - jobhunter.score.score() and score.run() implement the weighted-sum scorer with all six
+    components (skill_match, seniority_fit, compensation, location_fit, company_signal,
+    recency). Unknown fields score neutral (0.5). FX conversion and annualization use the
+    same logic as Stage 4. Deterministic and pure — no network calls.
+  - tests/test_score.py covers all Stage 5 acceptance criteria (52 tests).
   Remaining gaps (Phase 2+):
-  - Stage 5 (scoring) and Stage 6 (ranking/threshold) not yet implemented.
+  - Stage 6 (rank/threshold): rank.py is a stub — implemented in rank-threshold branch.
   - Stage 7 full: seen-state, "New this run" vs "Previously shown", JSON data file,
     dismiss/undismiss CLI (Phase 3).
 -->
