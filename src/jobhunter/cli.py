@@ -14,12 +14,39 @@ See: specs/02-functional-spec.md §Stage 7 (dismissal workflow)
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
+from .digest import render_markdown
+from .pipeline import run as pipeline_run
 from .profile import ProfileError, load_profile
 
 _DEFAULT_PROFILE = Path("profile.yaml")
+
+
+def _build_adapters() -> list:
+    """Build the list of configured source adapters from env vars.
+
+    Currently supports Adzuna if ADZUNA_APP_ID and ADZUNA_APP_KEY are set.
+    Prints a warning to stderr for each unconfigured adapter and returns an
+    empty list when no adapters can be initialised.
+    """
+    adapters = []
+
+    app_id = os.environ.get("ADZUNA_APP_ID", "")
+    app_key = os.environ.get("ADZUNA_APP_KEY", "")
+    if app_id and app_key:
+        from jobhunter.adapters.adzuna import AdzunaAdapter
+
+        adapters.append(AdzunaAdapter(app_id=app_id, app_key=app_key))
+    else:
+        print(
+            "Warning: ADZUNA_APP_ID / ADZUNA_APP_KEY not set — Adzuna adapter skipped.",
+            file=sys.stderr,
+        )
+
+    return adapters
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -30,11 +57,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    print(
-        f"Profile loaded: {len(profile['queries']['keywords'])} keyword(s), "
-        f"{len(profile['queries']['locations'])} location(s)."
-    )
-    print("Pipeline not yet implemented — see IMPLEMENTATION_PLAN.md for next steps.")
+    adapters = _build_adapters()
+
+    listings, unknown_flags, report = pipeline_run(profile, adapters)
+
+    digest = render_markdown(listings, report, unknown_flags)
+    print(digest)
     return 0
 
 

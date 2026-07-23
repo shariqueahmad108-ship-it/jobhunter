@@ -2,23 +2,19 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by hard-filter-stage build iteration):
-  - Stage 1 adapter (Adzuna) is implemented; max_requests_per_run enforcement and
-    truncation reporting belong in the pipeline runner (phase1-cli-digest).
-  - Multi-keyword × multi-location fan-out from profile.queries belongs in the runner.
-  - Stage 2 normalization utilities (strip_html, parse_salary, parse_location,
-    infer_seniority) are implemented in jobhunter.normalize; the Adzuna adapter now
-    uses strip_html from normalize (single source of truth). The run() pipeline stage
-    applies defensive post-adapter normalization (HTML stripping, empty-string → None).
-  - Stage 3 dedupe is implemented in jobhunter.dedupe: id-based merging (same normalized
-    identity key) and URL-based merging (same URL across sources); merges sources, keeps
-    earliest first_seen_at, most complete non-null fields, recomputes content_hash.
-  - Stage 4 hard filter is implemented in jobhunter.filter: all nine disqualifiers
-    (dismissed, exclude_locations, remote_policy, locations_allowed, seniority,
-    salary_floor with FX conversion and annualization, exclude_employment,
-    exclude_keywords with scope+word-boundary, max_age_days). Returns FilterResult
-    with passed listings, FilterTally, and per-listing unknown_flags.
-  - Stages 5–7 not yet implemented.
+<!-- Known gaps (updated by phase1-cli-digest build iteration):
+  Phase 1 pipeline (Stages 1–4 + minimal Stage 7) is now complete:
+  - jobhunter.pipeline.run() wires ingest → normalize → dedupe → filter, enforces
+    max_requests_per_run, records truncation, and returns (passed, unknown_flags, RunReport).
+  - jobhunter.digest.render_markdown() emits a plain Markdown list of surviving roles
+    plus the full run report tally (by_location, by_seniority, by_salary, by_employment,
+    by_keyword, by_age, dismissed). Unknown-field flags appear inline per listing.
+  - CLI `jobhunter run` loads the profile, instantiates configured adapters (Adzuna
+    when ADZUNA_APP_ID + ADZUNA_APP_KEY are set), runs the pipeline, and prints the digest.
+  Remaining gaps (Phase 2+):
+  - Stage 5 (scoring) and Stage 6 (ranking/threshold) not yet implemented.
+  - Stage 7 full: seen-state, "New this run" vs "Previously shown", JSON data file,
+    dismiss/undismiss CLI (Phase 3).
 -->
 
 # 02 — Functional Spec
