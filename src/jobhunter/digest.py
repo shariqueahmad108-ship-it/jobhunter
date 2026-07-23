@@ -20,7 +20,9 @@ See: specs/02-functional-spec.md §Stage 7
 
 from __future__ import annotations
 
+import csv
 import html
+import io
 import json
 
 from jobhunter.model import RunReport, Salary, ScoredResult
@@ -457,3 +459,99 @@ def render_json_data(
     if previously_seen:
         all_results = all_results + list(previously_seen)
     return json.dumps([result_to_dict(r) for r in all_results], indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# CSV data file
+# ---------------------------------------------------------------------------
+
+_CSV_FIELDNAMES = [
+    "id",
+    "content_hash",
+    "rank",
+    "score",
+    "summary_reason",
+    "unknown_flags",
+    "title",
+    "company",
+    "location_raw",
+    "location_city",
+    "location_region",
+    "location_country",
+    "is_remote",
+    "salary_min",
+    "salary_max",
+    "salary_currency",
+    "salary_period",
+    "seniority_track",
+    "seniority_level",
+    "employment",
+    "posted_at",
+    "first_seen_at",
+    "sources",
+    "components",
+]
+
+
+def _result_to_csv_row(result: ScoredResult) -> dict:
+    listing = result.listing
+    loc = listing.location
+    sal = listing.salary
+    sen = listing.seniority
+    return {
+        "id": listing.id,
+        "content_hash": listing.content_hash,
+        "rank": result.rank,
+        "score": result.score,
+        "summary_reason": result.summary_reason or "",
+        "unknown_flags": "|".join(result.unknown_flags),
+        "title": listing.title,
+        "company": listing.company,
+        "location_raw": loc.raw or "",
+        "location_city": loc.city or "",
+        "location_region": loc.region or "",
+        "location_country": loc.country or "",
+        "is_remote": str(loc.is_remote),
+        "salary_min": "" if sal is None or sal.min is None else sal.min,
+        "salary_max": "" if sal is None or sal.max is None else sal.max,
+        "salary_currency": "" if sal is None else (sal.currency or ""),
+        "salary_period": "" if sal is None else (sal.period or ""),
+        "seniority_track": "" if sen is None else (sen.track or ""),
+        "seniority_level": "" if sen is None else (sen.level or ""),
+        "employment": listing.employment or "",
+        "posted_at": listing.posted_at or "",
+        "first_seen_at": listing.first_seen_at or "",
+        "sources": " ; ".join(
+            f"{s.name}|{s.url or ''}|{s.source_id or ''}" for s in listing.sources
+        ),
+        "components": json.dumps(
+            [
+                {"name": c.name, "sub": c.sub, "weight": c.weight, "reason": c.reason}
+                for c in result.components
+            ],
+            ensure_ascii=False,
+        ),
+    }
+
+
+def render_csv_data(
+    results: list[ScoredResult],
+    previously_seen: list[ScoredResult] | None = None,
+) -> str:
+    """Serialize all scored survivors to a CSV string.
+
+    Includes both new-this-run and previously-seen results. Complex nested
+    fields (sources, components) are encoded as delimited strings or JSON.
+
+    See: specs/02-functional-spec.md §Stage 7 (Data file)
+    """
+    all_results = list(results)
+    if previously_seen:
+        all_results = all_results + list(previously_seen)
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_CSV_FIELDNAMES, lineterminator="\n")
+    writer.writeheader()
+    for result in all_results:
+        writer.writerow(_result_to_csv_row(result))
+    return buf.getvalue()

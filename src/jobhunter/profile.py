@@ -16,10 +16,12 @@ import yaml
 
 from jobhunter.model import IC_LEVELS as _IC_LEVELS
 from jobhunter.model import MANAGEMENT_LEVELS as _MGMT_LEVELS
+
 _REMOTE_POLICIES = {"remote_only", "hybrid_ok", "onsite_ok", "any"}
 _EMPLOYMENT_TYPES = {"full_time", "part_time", "contract", "temp", "internship"}
 _KEYWORD_SCOPES = {"title", "requirements"}
 _OUTPUT_FORMATS = {"markdown", "html", "both"}
+_DATA_FORMATS = {"json", "csv", "both"}
 _TRACKS = {"ic", "management"}
 
 _TOP_LEVEL_KEYS = {
@@ -291,7 +293,7 @@ def _validate_weights(weights: dict) -> None:
 def _validate_output(output: dict) -> None:
     _unknown_keys(
         output,
-        {"display_threshold", "max_shown", "show_previously_seen", "format"},
+        {"display_threshold", "max_shown", "show_previously_seen", "format", "data_format"},
         "output",
     )
     if "display_threshold" in output:
@@ -306,6 +308,12 @@ def _validate_output(output: dict) -> None:
         if output["format"] not in _OUTPUT_FORMATS:
             raise ProfileError(
                 f"output.format: must be one of {sorted(_OUTPUT_FORMATS)}, got {output['format']!r}"
+            )
+    if "data_format" in output:
+        if output["data_format"] not in _DATA_FORMATS:
+            raise ProfileError(
+                f"output.data_format: must be one of {sorted(_DATA_FORMATS)}, "
+                f"got {output['data_format']!r}"
             )
 
 
@@ -370,5 +378,6 @@ def load_profile(path: str | Path) -> dict:
     out.setdefault("max_shown", 25)
     out.setdefault("show_previously_seen", True)
     out.setdefault("format", "markdown")
+    out.setdefault("data_format", "json")
 
     return raw
