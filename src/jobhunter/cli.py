@@ -37,31 +37,81 @@ _DEFAULT_STATE = Path("state/state.yaml")
 
 
 def _build_adapters(profile: dict) -> list:
-    """Build the source adapters the PROFILE activates (first slice of plan item 6).
+    """Build the source adapters the PROFILE activates.
 
-    Adzuna: enabled when env credentials exist (as before).
-    ATS watchlist: enabled when queries.ats_watchlist is non-empty.
-    Warns to stderr for each unconfigured adapter; returns empty list when none available.
+    Reads the unified ``sources:`` block when present; falls back to
+    legacy ``queries.ats_watchlist`` (with a deprecation note) so old
+    profiles keep working unchanged.
+
+    sources.adzuna.enabled=false suppresses the Adzuna adapter even when
+    env credentials are set.  Adapters for sources not yet implemented
+    (feeds, remotive, remoteok, careerjet) emit a warning when enabled.
     """
     adapters = []
+    sources = profile.get("sources") or {}
 
+    # --- Adzuna -----------------------------------------------------------
     app_id = os.environ.get("ADZUNA_APP_ID", "")
     app_key = os.environ.get("ADZUNA_APP_KEY", "")
-    if app_id and app_key:
-        from jobhunter.adapters.adzuna import AdzunaAdapter
+    adzuna_cfg = sources.get("adzuna")
+    if adzuna_cfg is not None:
+        if adzuna_cfg.get("enabled", True):
+            if app_id and app_key:
+                from jobhunter.adapters.adzuna import AdzunaAdapter
 
-        adapters.append(AdzunaAdapter(app_id=app_id, app_key=app_key))
+                adapters.append(AdzunaAdapter(app_id=app_id, app_key=app_key))
+            else:
+                print(
+                    "Warning: sources.adzuna.enabled=true but "
+                    "ADZUNA_APP_ID / ADZUNA_APP_KEY not set — Adzuna adapter skipped.",
+                    file=sys.stderr,
+                )
+        # enabled=false: silently skip (user explicitly opted out)
     else:
-        print(
-            "Warning: ADZUNA_APP_ID / ADZUNA_APP_KEY not set — Adzuna adapter skipped.",
-            file=sys.stderr,
-        )
+        # Legacy behaviour: activate when env creds present
+        if app_id and app_key:
+            from jobhunter.adapters.adzuna import AdzunaAdapter
 
-    watchlist = profile.get("queries", {}).get("ats_watchlist") or []
+            adapters.append(AdzunaAdapter(app_id=app_id, app_key=app_key))
+        else:
+            print(
+                "Warning: ADZUNA_APP_ID / ADZUNA_APP_KEY not set — Adzuna adapter skipped.",
+                file=sys.stderr,
+            )
+
+    # --- ATS watchlist ----------------------------------------------------
+    sources_watchlist = sources.get("ats_watchlist")
+    queries_watchlist = profile.get("queries", {}).get("ats_watchlist") or []
+    if sources_watchlist is not None:
+        watchlist = sources_watchlist
+    else:
+        watchlist = queries_watchlist
+        if queries_watchlist:
+            print(
+                "Deprecation: queries.ats_watchlist is deprecated; "
+                "move entries to sources.ats_watchlist.",
+                file=sys.stderr,
+            )
     if watchlist:
         from jobhunter.adapters.ats import AtsAdapter
 
         adapters.append(AtsAdapter(watchlist))
+
+    # --- Not-yet-implemented sources --------------------------------------
+    feeds = sources.get("feeds") or []
+    if feeds:
+        print(
+            "Warning: sources.feeds not yet implemented (rss-atom-adapter pending).",
+            file=sys.stderr,
+        )
+    for src_name in ("remotive", "remoteok", "careerjet"):
+        cfg = sources.get(src_name)
+        if cfg and cfg.get("enabled"):
+            print(
+                f"Warning: sources.{src_name} not yet implemented "
+                f"(remote-board-adapters / aggregator-adapter pending).",
+                file=sys.stderr,
+            )
 
     return adapters
 

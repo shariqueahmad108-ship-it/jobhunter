@@ -77,3 +77,104 @@ def test_build_adapters_no_watchlist_no_ats():
     with patch.dict(os.environ, env):
         adapters = _build_adapters({"queries": {"ats_watchlist": []}})
     assert [a.name for a in adapters] == ["adzuna"]
+
+
+# ---------------------------------------------------------------------------
+# sources: block — END-TO-END adapter-construction criterion
+# (profile-driven-sources work item)
+# ---------------------------------------------------------------------------
+
+
+def test_sources_adzuna_disabled_suppresses_adapter():
+    """sources.adzuna.enabled=false: no Adzuna adapter even with env creds."""
+    import os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"adzuna": {"enabled": False}},
+    }
+    env = {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}
+    with patch.dict(os.environ, env):
+        adapters = _build_adapters(profile)
+    assert all(a.name != "adzuna" for a in adapters)
+
+
+def test_sources_adzuna_enabled_true_constructs_adapter():
+    """sources.adzuna.enabled=true + env creds => Adzuna adapter constructed."""
+    import os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"adzuna": {"enabled": True}},
+    }
+    env = {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}
+    with patch.dict(os.environ, env):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "adzuna" for a in adapters)
+
+
+def test_sources_ats_watchlist_takes_precedence_over_queries():
+    """sources.ats_watchlist wins over queries.ats_watchlist when both present."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": [{"ats": "greenhouse", "slug": "old-company"}]},
+        "sources": {
+            "ats_watchlist": [{"ats": "lever", "slug": "new-company"}]
+        },
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    ats_adapters = [a for a in adapters if a.name == "ats"]
+    assert len(ats_adapters) == 1
+    # The watchlist from sources: block was used (lever slug, not greenhouse slug).
+    assert ats_adapters[0]._watchlist[0]["slug"] == "new-company"
+
+
+def test_sources_ats_watchlist_no_queries_fallback():
+    """sources.ats_watchlist with no queries.ats_watchlist: ATS adapter is built."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {
+            "ats_watchlist": [{"ats": "ashby", "slug": "elastic", "name": "Elastic"}]
+        },
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "ats" for a in adapters)
+
+
+def test_legacy_queries_ats_watchlist_still_works():
+    """queries.ats_watchlist (no sources block) keeps activating ATS adapter."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": [{"ats": "greenhouse", "slug": "gitlab"}]},
+        "sources": {},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "ats" for a in adapters)
