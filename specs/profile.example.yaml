@@ -72,6 +72,10 @@ weights:                            # relative importance; 0 disables a componen
   company_signal: 10
   recency: 5
 
+search_mode: "active_employed"      # active_unemployed | active_employed | passive_employed
+                                    # posture preset (see specs/02) — explicit output/
+                                    # hard_requirements values below override its defaults
+
 output:
   display_threshold: 55             # hide scored results below this (0-100)
   max_shown: 25                     # cap on the "New this run" section

@@ -116,6 +116,11 @@ weights:                         # STAGE 5 — relative; 0 disables a component;
   company_signal: number
   recency:        number
 
+search_mode: enum(active_unemployed, active_employed, passive_employed) | null
+                                 # optional posture preset (see 02 §Search posture);
+                                 # supplies DEFAULTS for display_threshold, max_shown,
+                                 # max_age_days — explicit values below always override
+
 output:
   display_threshold:    number   # default 0; hide scored results below this (0–100)
   max_shown:            number   # default 25; cap on "New this run" section

@@ -250,5 +250,33 @@ Produce the run's output as a human-readable digest plus a machine-readable file
 
 ## Modes of operation (v1)
 
+Two independent axes: **how runs happen** (execution) and **how hungry the
+search is** (posture).
+
+### Execution
+
 - **On-demand:** run manually, get a digest for the current moment.
 - **Scheduled:** run on a cadence (e.g. each weekday morning) and produce a fresh "new since yesterday" digest. (Delivery mechanism — file, email, notification — is an open question in the technical plan.)
+
+### Search posture (`search_mode` in the profile)
+
+The user's situation changes how wide the net should be. `search_mode` is a
+named **preset over existing profile knobs** — pure config, no special-cased
+pipeline behavior ("config over code"). A preset supplies defaults; any knob
+the profile sets explicitly always wins.
+
+| `search_mode` | Situation | Preset defaults |
+|---|---|---|
+| `active_unemployed` | Not employed, actively looking — cast wide, move fast | `display_threshold: 40`, `max_shown: 40`, `max_age_days: 30`, suggested cadence: daily |
+| `active_employed` | Employed and actively looking — balanced | `display_threshold: 55`, `max_shown: 25`, `max_age_days: 21`, suggested cadence: each weekday |
+| `passive_employed` | Employed, only wants to hear about clearly interesting opportunities | `display_threshold: 70`, `max_shown: 10`, `max_age_days: 14`, suggested cadence: weekly |
+
+Omitting `search_mode` applies no preset (all knobs at their schema defaults).
+Cadence is advisory — scheduling lives outside the tool (cron / scheduled task);
+the suggested cadence is documentation for setting that up.
+
+**Acceptance criteria**
+- A preset fills only knobs the profile leaves unset: an explicit `display_threshold` in the profile beats the preset's value.
+- Switching `search_mode` alone (no other edits) changes the surfaced set on the next run, with no code edit.
+- The digest header names the active `search_mode` (or "none") so a digest is interpretable on its own.
+- With no `search_mode`, behavior is identical to pre-posture versions (schema defaults).
