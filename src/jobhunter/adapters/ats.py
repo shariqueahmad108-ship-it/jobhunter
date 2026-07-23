@@ -14,6 +14,13 @@ Sources used:
   Lever:      GET  https://api.lever.co/v0/postings/{slug}?mode=json
   Ashby:      POST https://jobs.ashbyhq.com/api/non-authed/job-board/jobs
 
+Note: Ashby's public job-board API only exposes descriptionSocial (a short
+teaser), not the full job description. The full text lives behind the detail
+endpoint (GET /api/non-authed/job-posting/{id}), which requires per-listing
+requests and is not fetched here to stay within the single-fetch-per-company
+design. Downstream keyword filtering therefore only sees the teaser text for
+Ashby listings.
+
 See: specs/04-technical-plan.md §Data sources
      specs/02-functional-spec.md §Stage 1–2
 """
@@ -28,8 +35,6 @@ import httpx
 
 from jobhunter.model import (
     JobListing,
-    Location,
-    Salary,
     Seniority,
     Source,
     derive_content_hash,
@@ -42,19 +47,11 @@ RawListing = dict[str, Any]
 
 _TIMEOUT = 30.0  # seconds
 
-# ---------------------------------------------------------------------------
-# ATS type → source name prefix
-# ---------------------------------------------------------------------------
-
 _ATS_SOURCE_PREFIX = {
     "greenhouse": "ats_greenhouse",
     "lever": "ats_lever",
     "ashby": "ats_ashby",
 }
-
-# ---------------------------------------------------------------------------
-# Employment type mappings
-# ---------------------------------------------------------------------------
 
 _LEVER_COMMITMENT_MAP: dict[str, str] = {
     "full-time": "full_time",
@@ -80,6 +77,8 @@ _ASHBY_EMPLOYMENT_MAP: dict[str, str] = {
     "temporary": "temp",
 }
 
+SUPPORTED_ATS_TYPES: frozenset[str] = frozenset({"greenhouse", "lever", "ashby"})
+
 
 # ---------------------------------------------------------------------------
 # Per-ATS fetch helpers
@@ -103,7 +102,6 @@ def _fetch_lever(slug: str) -> list[RawListing]:
         resp = client.get(url, params={"mode": "json"})
         resp.raise_for_status()
         data = resp.json()
-    # Lever returns a list directly
     return data if isinstance(data, list) else []
 
 
@@ -118,7 +116,7 @@ def _fetch_ashby(slug: str) -> list[RawListing]:
 
 
 # ---------------------------------------------------------------------------
-# Per-ATS normalize helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 
@@ -126,13 +124,11 @@ def _parse_iso_date(raw: str | None) -> str | None:
     """Parse an ISO 8601 datetime or date string to a YYYY-MM-DD string."""
     if not raw:
         return None
-    # Strip trailing Z and parse
     try:
         cleaned = raw.replace("Z", "+00:00").replace(".000+00:00", "+00:00")
         dt = datetime.fromisoformat(cleaned)
         return dt.date().isoformat()
     except (ValueError, AttributeError):
-        # Try bare date
         m = re.match(r"^(\d{4}-\d{2}-\d{2})", raw)
         return m.group(1) if m else None
 
@@ -146,8 +142,6 @@ def _lever_employment(raw: RawListing) -> str | None:
 
 def _ashby_employment(raw: RawListing) -> str | None:
     """Map Ashby employmentType to canonical employment type."""
-    emp = (raw.get("employmentType") or "").lower().replace(" ", "_").rstrip("s")
-    # Normalize CamelCase Ashby values: "FullTime" → "fulltime"
     emp_lower = (raw.get("employmentType") or "").lower().replace(" ", "")
     return _ASHBY_EMPLOYMENT_MAP.get(emp_lower)
 
@@ -162,13 +156,12 @@ def _build_listing(
     source_name: str,
     source_url: str,
     source_id: str,
+    first_seen_at: str,
 ) -> JobListing:
     """Shared listing construction logic for all three ATS formats."""
     description = strip_html(description_html)
     location = parse_location(location_raw)
-
     seniority: Seniority | None = infer_seniority(title, description)
-    first_seen_at = date.today().isoformat()
 
     source = Source(
         name=source_name,
@@ -190,14 +183,24 @@ def _build_listing(
         employment=employment,
         posted_at=posted_at,
     )
-    listing.id = derive_id(company, title, location)
+    if company:
+        listing.id = derive_id(company, title, location)
+    else:
+        # Salt with source_id so unknown-company roles with the same title+location
+        # don't collapse into one listing.
+        listing.id = derive_id(f"__unknown_company__{source_id}", title, location)
     listing.content_hash = derive_content_hash(listing)
     return listing
 
 
+# ---------------------------------------------------------------------------
+# Per-ATS normalize helpers
+# ---------------------------------------------------------------------------
+
+
 def _normalize_greenhouse(raw: RawListing) -> JobListing:
     """Normalize a Greenhouse job listing to a canonical JobListing."""
-    company = raw.get("_company_name") or "Unknown"
+    company = (raw.get("_company_name") or raw.get("_ats_slug") or "").strip()
     slug = raw.get("_ats_slug") or ""
     title = (raw.get("title") or "").strip()
     description_html = raw.get("content") or ""
@@ -207,6 +210,7 @@ def _normalize_greenhouse(raw: RawListing) -> JobListing:
     source_url = (raw.get("absolute_url") or "").strip()
     source_id = str(raw.get("id") or "")
     source_name = f"{_ATS_SOURCE_PREFIX['greenhouse']}:{slug}"
+    first_seen_at = raw.get("_run_date") or date.today().isoformat()
 
     return _build_listing(
         title=title,
@@ -218,12 +222,13 @@ def _normalize_greenhouse(raw: RawListing) -> JobListing:
         source_name=source_name,
         source_url=source_url,
         source_id=source_id,
+        first_seen_at=first_seen_at,
     )
 
 
 def _normalize_lever(raw: RawListing) -> JobListing:
     """Normalize a Lever job posting to a canonical JobListing."""
-    company = raw.get("_company_name") or "Unknown"
+    company = (raw.get("_company_name") or raw.get("_ats_slug") or "").strip()
     slug = raw.get("_ats_slug") or ""
     title = (raw.get("text") or "").strip()
     description_html = raw.get("description") or raw.get("descriptionPlain") or ""
@@ -244,6 +249,7 @@ def _normalize_lever(raw: RawListing) -> JobListing:
     source_id = str(raw.get("id") or "")
     source_name = f"{_ATS_SOURCE_PREFIX['lever']}:{slug}"
     employment = _lever_employment(raw)
+    first_seen_at = raw.get("_run_date") or date.today().isoformat()
 
     return _build_listing(
         title=title,
@@ -255,14 +261,16 @@ def _normalize_lever(raw: RawListing) -> JobListing:
         source_name=source_name,
         source_url=source_url,
         source_id=source_id,
+        first_seen_at=first_seen_at,
     )
 
 
 def _normalize_ashby(raw: RawListing) -> JobListing:
     """Normalize an Ashby job posting to a canonical JobListing."""
-    company = raw.get("_company_name") or "Unknown"
+    company = (raw.get("_company_name") or raw.get("_ats_slug") or "").strip()
     slug = raw.get("_ats_slug") or ""
     title = (raw.get("title") or "").strip()
+    # descriptionSocial is a teaser only; full description requires the detail endpoint
     description_html = raw.get("descriptionSocial") or ""
     location_raw = (raw.get("locationName") or "").strip()
     posted_at = _parse_iso_date(raw.get("publishedDate"))
@@ -270,6 +278,7 @@ def _normalize_ashby(raw: RawListing) -> JobListing:
     source_id = str(raw.get("id") or "")
     source_name = f"{_ATS_SOURCE_PREFIX['ashby']}:{slug}"
     employment = _ashby_employment(raw)
+    first_seen_at = raw.get("_run_date") or date.today().isoformat()
 
     return _build_listing(
         title=title,
@@ -281,6 +290,7 @@ def _normalize_ashby(raw: RawListing) -> JobListing:
         source_name=source_name,
         source_url=source_url,
         source_id=source_id,
+        first_seen_at=first_seen_at,
     )
 
 
@@ -300,8 +310,6 @@ _FETCHERS = {
     "ashby": _fetch_ashby,
 }
 
-_SUPPORTED_ATS = frozenset(_FETCHERS)
-
 
 # ---------------------------------------------------------------------------
 # Public adapter class
@@ -315,6 +323,10 @@ class AtsAdapter:
     Keyword and location arguments are ignored — the hard filter stage applies
     location policy and keyword filtering downstream.
 
+    This adapter is query-independent: it fetches all watchlist companies once
+    per run, not once per keyword×location combination. The pipeline recognises
+    the ``query_independent = True`` attribute and calls ``search`` exactly once.
+
     Each entry in watchlist must have:
         ats:  "greenhouse" | "lever" | "ashby"
         slug: the company's slug in their ATS (from the job board URL)
@@ -324,37 +336,53 @@ class AtsAdapter:
     """
 
     name = "ats"
+    query_independent = True  # pipeline calls search() once per run, not per keyword×location
 
     def __init__(self, watchlist: list[dict]) -> None:
         self._watchlist = [
-            e for e in watchlist if e.get("ats", "").lower() in _SUPPORTED_ATS and e.get("slug")
+            e
+            for e in watchlist
+            if e.get("ats", "").lower() in SUPPORTED_ATS_TYPES and e.get("slug")
         ]
+        self.run_date: str = ""  # injected by pipeline before each run
+        self.company_failures: list[str] = []
 
     def search(self, keyword: str, location: str, max_results: int = 50) -> list[RawListing]:
         """Fetch all open jobs from all configured companies.
 
         keyword and location are intentionally ignored; the pipeline's hard filter
-        handles location policy and deal-breaker keywords after normalization.
+        handles location policy and keyword filtering after normalization.
 
-        Raises httpx.HTTPError on unrecoverable network / auth failures for a
-        company; the pipeline's exception handler skips and records the failure.
-        Per-company errors propagate so the pipeline's source-failure tally
-        catches them — but only after all companies for the current entry are tried.
+        Per-company errors are caught and recorded in ``self.company_failures``
+        so the pipeline can surface them individually without aborting the run.
+        The pipeline reads ``company_failures`` after each call.
+
+        Returns all successful results with no truncation — ``max_results`` is
+        accepted for protocol compatibility but not applied. The pipeline's
+        max_requests_per_run cap governs overall volume; the hard filter trims
+        by relevance.
         """
+        self.company_failures = []
         results: list[RawListing] = []
+
         for entry in self._watchlist:
             ats_type = entry["ats"].lower()
             slug = entry["slug"]
             company_name = (entry.get("name") or slug).strip()
+            try:
+                raws = _FETCHERS[ats_type](slug)
+                for raw in raws:
+                    raw["_ats_type"] = ats_type
+                    raw["_ats_slug"] = slug
+                    raw["_company_name"] = company_name
+                    raw["_run_date"] = self.run_date
+                results.extend(raws)
+            except Exception as exc:
+                self.company_failures.append(
+                    f"{company_name} ({ats_type}:{slug}): {exc}"
+                )
 
-            raws = _FETCHERS[ats_type](slug)
-            for raw in raws:
-                raw["_ats_type"] = ats_type
-                raw["_ats_slug"] = slug
-                raw["_company_name"] = company_name
-            results.extend(raws)
-
-        return results[:max_results]
+        return results
 
     def normalize(self, raw: RawListing) -> JobListing:
         """Map an ATS raw listing dict to a canonical JobListing.

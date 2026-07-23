@@ -650,3 +650,91 @@ def test_require_keywords_bad_scope_rejected(tmp_path: Path) -> None:
                                  "require_keywords": [{"term": "x", "scope": "everywhere"}]}
     with pytest.raises(ProfileError, match="require_keywords"):
         load_profile(_write(tmp_path, data))
+
+
+# ---------------------------------------------------------------------------
+# queries.ats_watchlist (ATS company watchlist)
+# ---------------------------------------------------------------------------
+
+
+def test_ats_watchlist_defaults_to_empty(tmp_path: Path) -> None:
+    """ats_watchlist defaults to [] when absent."""
+    r = load_profile(_write(tmp_path, _minimal()))
+    assert r["queries"]["ats_watchlist"] == []
+
+
+def test_ats_watchlist_valid_entries(tmp_path: Path) -> None:
+    """Valid ats_watchlist entries for all three supported ATS types load correctly."""
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [
+        {"ats": "greenhouse", "slug": "github", "name": "GitHub"},
+        {"ats": "lever", "slug": "hashicorp"},
+        {"ats": "ashby", "slug": "elastic", "name": "Elastic"},
+    ]
+    r = load_profile(_write(tmp_path, data))
+    assert len(r["queries"]["ats_watchlist"]) == 3
+
+
+def test_ats_watchlist_name_is_optional(tmp_path: Path) -> None:
+    """ats_watchlist entries without 'name' are valid."""
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [{"ats": "lever", "slug": "canonical"}]
+    load_profile(_write(tmp_path, data))  # must not raise
+
+
+def test_ats_watchlist_unsupported_ats_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [{"ats": "workday", "slug": "microsoft"}]
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError, match="ats_watchlist"):
+        load_profile(p)
+
+
+def test_ats_watchlist_missing_ats_field_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [{"slug": "github"}]
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError, match="ats_watchlist"):
+        load_profile(p)
+
+
+def test_ats_watchlist_missing_slug_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [{"ats": "greenhouse"}]
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError, match="ats_watchlist"):
+        load_profile(p)
+
+
+def test_ats_watchlist_empty_slug_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [{"ats": "greenhouse", "slug": "   "}]
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError, match="slug"):
+        load_profile(p)
+
+
+def test_ats_watchlist_unknown_key_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [
+        {"ats": "greenhouse", "slug": "github", "extra_field": "oops"}
+    ]
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError, match="Unknown key"):
+        load_profile(p)
+
+
+def test_ats_watchlist_entry_not_dict_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = ["github"]  # should be list of dicts
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError):
+        load_profile(p)
+
+
+def test_ats_watchlist_not_list_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = {"ats": "greenhouse", "slug": "github"}  # should be list
+    p = _write(tmp_path, data)
+    with pytest.raises(ProfileError):
+        load_profile(p)

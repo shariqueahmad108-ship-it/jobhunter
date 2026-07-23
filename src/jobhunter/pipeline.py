@@ -60,6 +60,29 @@ def run(
             break
         if today is not None and hasattr(adapter, "run_date"):
             adapter.run_date = today.isoformat()
+
+        if getattr(adapter, "query_independent", False):
+            # ATS-style adapters: fetch all companies once, not per keyword×location.
+            # Each company's failures are caught inside search() and stored on the
+            # adapter; we surface them here so they appear in the run report.
+            if requests_made >= max_requests:
+                truncated = True
+                done = True
+                break
+            try:
+                results = adapter.search("", "", max_results)
+                for raw in results:
+                    raw_listings.append(adapter.normalize(raw))
+                if adapter.name not in sources_used:
+                    sources_used.append(adapter.name)
+            except Exception as exc:
+                sources_failed.append(SourceFailure(name=adapter.name, error=str(exc)))
+            if hasattr(adapter, "company_failures"):
+                for msg in adapter.company_failures:
+                    sources_failed.append(SourceFailure(name=adapter.name, error=msg))
+            requests_made += 1
+            continue
+
         counts_requests = hasattr(adapter, "requests_made")
         base_count = adapter.requests_made if counts_requests else 0
         total_before_adapter = requests_made
