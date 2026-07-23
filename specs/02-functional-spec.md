@@ -2,7 +2,7 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by normalize-stage build iteration):
+<!-- Known gaps (updated by dedupe-stage build iteration):
   - Stage 1 adapter (Adzuna) is implemented; max_requests_per_run enforcement and
     truncation reporting belong in the pipeline runner (phase1-cli-digest).
   - Multi-keyword × multi-location fan-out from profile.queries belongs in the runner.
@@ -10,7 +10,10 @@ status: partial
     infer_seniority) are implemented in jobhunter.normalize; the Adzuna adapter now
     uses strip_html from normalize (single source of truth). The run() pipeline stage
     applies defensive post-adapter normalization (HTML stripping, empty-string → None).
-  - Stages 3–7 not yet implemented.
+  - Stage 3 dedupe is implemented in jobhunter.dedupe: id-based merging (same normalized
+    identity key) and URL-based merging (same URL across sources); merges sources, keeps
+    earliest first_seen_at, most complete non-null fields, recomputes content_hash.
+  - Stages 4–7 not yet implemented.
 -->
 
 # 02 — Functional Spec
