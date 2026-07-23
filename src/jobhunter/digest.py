@@ -135,6 +135,7 @@ def render_markdown(
         + report.dropped_by_salary
         + report.dropped_by_employment
         + report.dropped_by_keyword
+        + report.dropped_by_required
         + report.dropped_by_age
         + report.dropped_dismissed
     )
@@ -154,6 +155,7 @@ def render_markdown(
     lines.append(f"- by salary:        {report.dropped_by_salary}")
     lines.append(f"- by employment:    {report.dropped_by_employment}")
     lines.append(f"- by keyword:       {report.dropped_by_keyword}")
+    lines.append(f"- missing required: {report.dropped_by_required}")
     lines.append(f"- too old:          {report.dropped_by_age}")
     lines.append(f"- dismissed:        {report.dropped_dismissed}")
 
@@ -317,6 +319,7 @@ def render_html(
         + report.dropped_by_salary
         + report.dropped_by_employment
         + report.dropped_by_keyword
+        + report.dropped_by_required
         + report.dropped_by_age
         + report.dropped_dismissed
     )
@@ -339,6 +342,7 @@ def render_html(
         f"salary: {report.dropped_by_salary}",
         f"employment: {report.dropped_by_employment}",
         f"keyword: {report.dropped_by_keyword}",
+        f"missing required: {report.dropped_by_required}",
         f"too old: {report.dropped_by_age}",
         f"dismissed: {report.dropped_dismissed}",
     ]

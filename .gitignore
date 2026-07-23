@@ -24,3 +24,6 @@ STOP
 # OS
 .DS_Store
 _to_delete/
+
+# any personal profile variant (root only; specs/profile.example.yaml stays tracked)
+/profile-*.yaml

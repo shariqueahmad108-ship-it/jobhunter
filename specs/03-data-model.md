@@ -96,6 +96,9 @@ hard_requirements:               # STAGE 4 — any failure drops the listing; un
   exclude_keywords:                # deal-breakers; word-boundary, case-insensitive, scoped
     - term:  string
       scope: enum(title, requirements)   # default requirements (= title + description)
+  require_keywords:                # domain anchor: match AT LEAST ONE or drop; [] = off
+    - term:  string                #   same matching + scope semantics as exclude_keywords
+      scope: enum(title, requirements)   # default requirements
   max_age_days:      number        # default 30
 
 preferences:                     # STAGE 5 — soft scoring inputs
@@ -171,6 +174,7 @@ dropped:                         # the filter tally, for debugging criteria
   by_salary:       number
   by_employment:   number
   by_keyword:      number
+  by_required:     number          # dropped for matching no require_keywords term
   by_age:          number
   dismissed:       number
 below_threshold:   number        # passed everything, hidden by display_threshold

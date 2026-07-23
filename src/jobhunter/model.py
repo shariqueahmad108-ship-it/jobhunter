@@ -134,6 +134,7 @@ class RunReport:
     dropped_by_salary: int = 0
     dropped_by_employment: int = 0
     dropped_by_keyword: int = 0
+    dropped_by_required: int = 0
     dropped_by_age: int = 0
     dropped_dismissed: int = 0
     below_threshold: int = 0

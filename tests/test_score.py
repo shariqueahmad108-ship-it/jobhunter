@@ -131,6 +131,44 @@ class TestSkillMatch:
         sm = next(c for c in result.components if c.name == "skill_match")
         assert sm.sub == pytest.approx(0.75)  # python + aws + kubernetes = 3/4
 
+    def test_large_skill_list_saturates(self):
+        """A rich skill list must not deflate scores: 5 matches = full marks."""
+        profile = {
+            **BASE_PROFILE,
+            "identity": {
+                "target_skills": [
+                    "python", "aws", "kubernetes", "typescript", "docker",
+                    "terraform", "react", "graphql", "postgres", "redis",
+                    "kafka", "grafana", "linux", "networking", "security",
+                    "ci/cd", "golang",
+                ],
+                "target": [{"track": "ic", "level": "senior"}],
+            },
+        }
+        listing = _listing(
+            title="Senior Python Engineer",
+            description="AWS Kubernetes TypeScript and Docker experience required.",
+        )
+        result = score(listing, profile, today=TODAY)
+        sm = next(c for c in result.components if c.name == "skill_match")
+        assert sm.sub == pytest.approx(1.0)  # 5 matches saturates despite 17 targets
+
+    def test_saturation_partial_still_proportional(self):
+        profile = {
+            **BASE_PROFILE,
+            "identity": {
+                "target_skills": [
+                    "python", "aws", "kubernetes", "typescript", "docker",
+                    "terraform", "react", "graphql", "postgres", "redis",
+                ],
+                "target": [{"track": "ic", "level": "senior"}],
+            },
+        }
+        listing = _listing(title="Python Developer", description="AWS experience a bonus.")
+        result = score(listing, profile, today=TODAY)
+        sm = next(c for c in result.components if c.name == "skill_match")
+        assert sm.sub == pytest.approx(0.4)  # 2 of saturation-5
+
     def test_empty_target_skills_returns_neutral(self):
         profile = {
             **BASE_PROFILE,

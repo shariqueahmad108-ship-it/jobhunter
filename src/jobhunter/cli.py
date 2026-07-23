@@ -58,9 +58,23 @@ def _build_adapters() -> list:
     return adapters
 
 
+def _profile_slug(profile_path: Path) -> str:
+    """Multi-profile identity: '' for the default profile.yaml, else its stem.
+
+    e.g. profile-ospo.yaml -> 'profile-ospo'. Used to keep each profile's
+    seen-state and digest files independent without extra flags.
+    """
+    return "" if profile_path.stem == "profile" else profile_path.stem
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     profile_path = Path(args.profile)
     state_path = Path(args.state)
+    slug_suffix = _profile_slug(profile_path)
+    # A non-default profile gets its own state file automatically unless the
+    # user explicitly chose one — two profiles must never share seen-state.
+    if slug_suffix and str(state_path) == str(_DEFAULT_STATE):
+        state_path = state_path.with_name(f"state-{slug_suffix}.yaml")
 
     try:
         profile = load_profile(profile_path)
@@ -98,7 +112,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         digest_dir = state_path.parent.parent / "digests"
     digest_dir.mkdir(parents=True, exist_ok=True)
-    slug = today  # ISO date string used as filename stem
+    # Filename stem: date, plus the profile name for non-default profiles so
+    # same-day runs of different profiles never overwrite each other.
+    slug = f"{today}-{slug_suffix}" if slug_suffix else today
 
     # Always write the JSON data file (machine-readable companion).
     json_path = digest_dir / f"{slug}.json"

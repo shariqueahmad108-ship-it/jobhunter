@@ -148,6 +148,12 @@ Configurable hard filters:
   the default), with an optional per-term scope override in the profile. A bare mention in a
   "nice to have" laundry list is exactly why scoping exists — put hard tech deal-breakers on
   `title` scope if description matches prove too aggressive.
+- **Required keywords (domain anchor):** if `require_keywords` is non-empty, a
+  listing must match **at least one** term (same word-boundary + scope semantics
+  as deal-breakers) or it is dropped. Use for domain anchoring — e.g. a culinary
+  trainer profile requiring one of {cookery, chef, food, kitchen} so trainer
+  ads from unrelated fields (counselling, business) never surface. Empty list =
+  no requirement.
 - **Freshness:** drop listings older than `max_age_days` (by `posted_at`, falling back to `first_seen_at`).
 - **Dismissed:** drop anything I explicitly dismissed in a prior run (see Stage 7 — dismissals are
   permanent; *seen* items are handled at presentation, not dropped here).
@@ -160,6 +166,7 @@ Configurable hard filters:
 - A `$900/day AUD` contract listing correctly annualizes to ~$234k for the floor comparison; a USD salary with a pinned rate converts; one without a pinned rate is treated as unknown.
 - Changing a single hard filter in the profile changes the surviving set on the next run, with no code edit.
 - An exclusion term matches only on word boundaries and only within its scope ("PHP" with `title` scope does not drop a listing that mentions PHP in the description).
+- With `require_keywords` set, a listing matching none of the terms is dropped (tallied as `missing required`); matching any single one passes; an empty list imposes no requirement.
 - The run reports how many listings were dropped and by which filter (a small tally), so filters can be debugged.
 
 ## Stage 5 — Score (soft preferences)

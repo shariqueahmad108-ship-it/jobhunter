@@ -33,13 +33,24 @@ from jobhunter.model import JobListing, ScoreComponent, ScoredResult, term_patte
 _RECENCY_HALF_LIFE_DAYS = 14
 
 
+# Matching this many target skills means a full-marks skill fit. Without
+# saturation, a rich skill list (15+ terms) makes full marks unreachable —
+# especially against truncated source snippets — deflating every score and
+# punishing thorough profiles.
+_SKILL_SATURATION = 5
+
+
 def _score_skill_match(listing: JobListing, target_skills: list[str]) -> tuple[float, str]:
-    """Word-boundary, case-insensitive overlap of target skills with title + description."""
+    """Word-boundary, case-insensitive overlap of target skills with title + description.
+
+    Saturating: matching _SKILL_SATURATION (or every) target skill = full marks.
+    """
     if not target_skills:
         return 0.5, "no target skills configured"
     text = listing.title + " " + listing.description
     matched = [skill for skill in target_skills if term_pattern(skill).search(text)]
-    ratio = len(matched) / len(target_skills)
+    saturation = min(len(target_skills), _SKILL_SATURATION)
+    ratio = min(1.0, len(matched) / saturation)
     if matched:
         shown = ", ".join(matched[:3])
         suffix = f" +{len(matched) - 3} more" if len(matched) > 3 else ""

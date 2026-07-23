@@ -48,6 +48,7 @@ class FilterTally:
     by_salary: int = 0
     by_employment: int = 0
     by_keyword: int = 0
+    by_required: int = 0
     by_age: int = 0
     dismissed: int = 0
 
@@ -69,11 +70,13 @@ class FilterResult:
 def _location_matches_any(loc: Location, entries: list[str]) -> bool:
     """Return True if any parsed field (city, region, country) matches an entry.
 
-    Matching is case-insensitive exact-match per field, never a substring match
-    against the raw string.
+    Word-boundary matching per parsed field (never against the raw string):
+    "Sydney" matches a parsed city of "Sydney Region"; "syd" matches nothing.
+    Sources like Adzuna parse cities as region-qualified names, so exact
+    field equality is too brittle.
     """
-    parsed = {p.lower() for p in [loc.city, loc.region, loc.country] if p}
-    return any(e.lower() in parsed for e in entries)
+    fields = [p for p in [loc.city, loc.region, loc.country] if p]
+    return any(term_pattern(e).search(f) for e in entries for f in fields)
 
 
 def _has_geographic_info(loc: Location) -> bool:
@@ -310,6 +313,23 @@ def run(
                     tally.by_keyword += 1
                     drop_reason = "keyword"
                     break
+
+        # 8b. Required keywords — domain anchor: at least ONE must match
+        if drop_reason is None:
+            req = hr.get("require_keywords", [])
+            if req:
+                def _matches(kw: dict) -> bool:
+                    pattern = term_pattern(kw["term"])
+                    if pattern.search(listing.title):
+                        return True
+                    scope = kw.get("scope", "requirements")
+                    return scope == "requirements" and bool(
+                        pattern.search(listing.description)
+                    )
+
+                if not any(_matches(kw) for kw in req):
+                    tally.by_required += 1
+                    drop_reason = "required"
 
         # 9. Freshness
         if drop_reason is None:

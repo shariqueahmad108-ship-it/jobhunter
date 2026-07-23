@@ -233,14 +233,18 @@ class TestLocationFilter:
         result = run([onsite_mel], _profile(remote_policy="any"), today=TODAY)
         assert len(result.passed) == 1
 
-    def test_exclude_location_not_substring(self):
-        """exclude_locations does not match as a substring; must match a full field."""
-        # "South Sydney" as city — "Sydney" should NOT match "South Sydney" as a prefix,
-        # but since city IS "South Sydney", "Sydney" (as exact field check) does NOT match.
+    def test_exclude_location_word_boundary_matches_qualified_city(self):
+        """'Sydney' DOES match 'South Sydney' / 'Sydney Region' on word boundaries —
+        region-qualified suburb/metro names belong to the excluded area. Only
+        genuine substrings (Sydenham) must not match."""
         listing = _listing(id="ss", is_remote=True, city="South Sydney")
         result = run([listing], BASE_PROFILE, today=TODAY)
-        # "Sydney" ≠ "South Sydney" — not a match
-        assert len(result.passed) == 1
+        assert len(result.passed) == 0  # excluded: South Sydney is in Sydney
+
+    def test_exclude_location_true_substring_no_match(self):
+        listing = _listing(id="syd", is_remote=True, city="Sydenham")
+        result = run([listing], BASE_PROFILE, today=TODAY)
+        assert len(result.passed) == 1  # Sydenham is not Sydney
 
 
 # ---------------------------------------------------------------------------
@@ -712,3 +716,67 @@ class TestMultiFilterInteraction:
         # Lowered floor keeps it
         result_low = run([listing], _profile(salary_floor=140000), today=TODAY)
         assert len(result_low.passed) == 1
+
+
+# ---------------------------------------------------------------------------
+# Word-boundary location matching (region-qualified parsed cities)
+# ---------------------------------------------------------------------------
+
+from jobhunter.filter import _location_matches_any
+from jobhunter.model import Location as _Loc
+
+
+def test_location_entry_matches_region_qualified_city():
+    loc = _Loc(raw="Sydney Region, NSW", city="Sydney Region", region="NSW", country="AU")
+    assert _location_matches_any(loc, ["Sydney"]) is True
+
+
+def test_location_entry_no_substring_false_positive():
+    loc = _Loc(raw="Sydenham", city="Sydenham", region="NSW", country="AU")
+    assert _location_matches_any(loc, ["Sydney"]) is False
+
+
+# ---------------------------------------------------------------------------
+# require_keywords: domain anchor
+# ---------------------------------------------------------------------------
+
+
+def _profile_with_required(req):
+    prof = {k: (dict(v) if isinstance(v, dict) else v) for k, v in BASE_PROFILE.items()}
+    prof["hard_requirements"] = {**BASE_PROFILE["hard_requirements"], "require_keywords": req}
+    return prof
+
+
+def test_require_keywords_drops_off_domain():
+    """A counselling trainer ad dies when cooking terms are required."""
+    prof = _profile_with_required([{"term": "cookery", "scope": "requirements"},
+                                   {"term": "chef", "scope": "requirements"}])
+    listing = _listing(id="c1", is_remote=True, title="Trainer and Assessor - Counselling",
+                       description="Deliver counselling qualifications at our RTO.")
+    result = run([listing], prof, today=TODAY)
+    assert len(result.passed) == 0
+    assert result.tally.by_required == 1
+
+
+def test_require_keywords_any_one_match_passes():
+    prof = _profile_with_required([{"term": "cookery", "scope": "requirements"},
+                                   {"term": "chef", "scope": "requirements"}])
+    listing = _listing(id="c2", is_remote=True, title="Trainer and Assessor - Commercial Cookery",
+                       description="Deliver Certificate III in Commercial Cookery.")
+    result = run([listing], prof, today=TODAY)
+    assert len(result.passed) == 1
+
+
+def test_require_keywords_empty_means_no_requirement():
+    prof = _profile_with_required([])
+    listing = _listing(id="c3", is_remote=True, title="Anything At All")
+    result = run([listing], prof, today=TODAY)
+    assert len(result.passed) == 1
+
+
+def test_require_keywords_title_scope():
+    prof = _profile_with_required([{"term": "cookery", "scope": "title"}])
+    listing = _listing(id="c4", is_remote=True, title="Business Trainer",
+                       description="Mentions cookery only in the body.")
+    result = run([listing], prof, today=TODAY)
+    assert len(result.passed) == 0  # title scope ignores the description mention

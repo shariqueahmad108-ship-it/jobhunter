@@ -634,3 +634,19 @@ def test_search_mode_absent_uses_schema_defaults(tmp_path: Path) -> None:
 def test_search_mode_invalid_rejected(tmp_path: Path) -> None:
     with pytest.raises(ProfileError, match="search_mode"):
         load_profile(_write(tmp_path, _minimal({"search_mode": "desperate"})))
+
+
+def test_require_keywords_validated_and_defaulted(tmp_path: Path) -> None:
+    data = _minimal()
+    data["hard_requirements"] = {**data["hard_requirements"],
+                                 "require_keywords": [{"term": "cookery"}]}
+    prof = load_profile(_write(tmp_path, data))
+    assert prof["hard_requirements"]["require_keywords"][0]["scope"] == "requirements"
+
+
+def test_require_keywords_bad_scope_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["hard_requirements"] = {**data["hard_requirements"],
+                                 "require_keywords": [{"term": "x", "scope": "everywhere"}]}
+    with pytest.raises(ProfileError, match="require_keywords"):
+        load_profile(_write(tmp_path, data))

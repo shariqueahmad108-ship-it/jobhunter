@@ -164,6 +164,7 @@ def _validate_hard_requirements(hr: dict) -> None:
         "keep_unknown_salary",
         "exclude_employment",
         "exclude_keywords",
+        "require_keywords",
         "max_age_days",
     }
     _unknown_keys(hr, allowed, "hard_requirements")
@@ -232,6 +233,19 @@ def _validate_hard_requirements(hr: dict) -> None:
                     f"hard_requirements.exclude_keywords[{i}].scope: must be one of "
                     f"{sorted(_KEYWORD_SCOPES)}, got {kw['scope']!r}"
                 )
+
+    req_kw = hr.get("require_keywords", [])
+    _expect_type(req_kw, list, "hard_requirements.require_keywords")
+    for i, kw in enumerate(req_kw):
+        _expect_type(kw, dict, f"hard_requirements.require_keywords[{i}]")
+        _unknown_keys(kw, {"term", "scope"}, f"hard_requirements.require_keywords[{i}]")
+        _require(kw, "term", f"hard_requirements.require_keywords[{i}]")
+        _expect_type(kw["term"], str, f"hard_requirements.require_keywords[{i}].term")
+        if "scope" in kw and kw["scope"] not in _KEYWORD_SCOPES:
+            raise ProfileError(
+                f"hard_requirements.require_keywords[{i}].scope: must be one of "
+                f"{sorted(_KEYWORD_SCOPES)}, got {kw['scope']!r}"
+            )
 
     if "max_age_days" in hr:
         if not _is_number(hr["max_age_days"]):
@@ -344,6 +358,9 @@ def load_profile(path: str | Path) -> dict:
     hr.setdefault("keep_unknown_salary", True)
     hr.setdefault("exclude_employment", [])
     hr.setdefault("exclude_keywords", [])
+    hr.setdefault("require_keywords", [])
+    for kw in hr["require_keywords"]:
+        kw.setdefault("scope", "requirements")
     hr.setdefault("max_age_days", 30)
     for kw in hr["exclude_keywords"]:
         kw.setdefault("scope", "requirements")

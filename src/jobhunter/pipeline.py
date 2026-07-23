@@ -131,6 +131,7 @@ def run(
         dropped_by_salary=tally.by_salary,
         dropped_by_employment=tally.by_employment,
         dropped_by_keyword=tally.by_keyword,
+        dropped_by_required=tally.by_required,
         dropped_by_age=tally.by_age,
         dropped_dismissed=tally.dismissed,
         below_threshold=below_threshold,
