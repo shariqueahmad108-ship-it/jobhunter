@@ -1,3 +1,17 @@
+---
+status: partial
+---
+
+<!-- Known gaps (updated by adzuna-adapter build iteration):
+  - Stage 1 adapter (Adzuna) is implemented; max_requests_per_run enforcement and
+    truncation reporting belong in the pipeline runner (phase1-cli-digest).
+  - Multi-keyword × multi-location fan-out from profile.queries belongs in the runner.
+  - Stage 2 normalization (salary/location parsing, full seniority inference) is done
+    inside the Adzuna adapter's normalize(); the normalize-stage work item adds the
+    standalone pipeline stage for non-adapter-aware normalization paths.
+  - Stages 3–7 not yet implemented.
+-->
+
 # 02 — Functional Spec
 
 This describes *what the tool does*. Behaviors are grouped into a pipeline: **ingest → normalize
