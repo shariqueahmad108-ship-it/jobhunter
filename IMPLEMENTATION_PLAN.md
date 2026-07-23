@@ -107,7 +107,21 @@ seen-state + dismiss CLI, Markdown/HTML/JSON digests.
     up (it references a `queries.ats_watchlist` profile field that must be
     added to the profile schema + specs/03), write tests, and land it
     properly. Delete the draft file in the same branch.
-    Validation: `python -m pytest tests/test_ats.py tests/test_profile.py -q`.
+    Draft review findings to address:
+    - `queries.ats_watchlist` must be added to the profile schema (specs/03 +
+      profile.py + profile.example.yaml): list of {ats, slug, name?}.
+    - search() has NO per-company error handling despite its docstring — first
+      company failure aborts the whole watchlist. Catch per company, aggregate
+      failures, continue.
+    - The pipeline calls search() per keyword×location but this adapter is
+      query-independent — it refetches the whole watchlist every combo. Add a
+      query-independent adapter concept (fetch once per run) to pipeline.py,
+      and drop the cross-company `[:max_results]` truncation.
+    - Dead code in _ashby_employment (unused `emp` variable).
+    - Same never-guess issues as item 9 ("Unknown" company, date.today()).
+    - Ashby `descriptionSocial` is a teaser, not the full description — note
+      the limitation or fetch the detail endpoint.
+    Validation: `python -m pytest tests/test_ats.py tests/test_profile.py tests/test_pipeline.py -q`.
 
 11. **`golden-fixture-corpus`** — specs/04 §Fixtures: 30–50 real (anonymized)
     listings with expected outcomes at every stage, covering the awkward
