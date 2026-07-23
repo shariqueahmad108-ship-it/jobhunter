@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from datetime import date, datetime
 from typing import Any
 
@@ -37,6 +38,9 @@ RawListing = dict[str, Any]
 _BASE_URL = "https://api.adzuna.com/v1/api/jobs"
 _PAGE_SIZE = 50  # Adzuna max per page
 _TIMEOUT = 30.0  # seconds
+_DEFAULT_PAGE_DELAY = 0.5  # seconds between pages (politeness)
+_MAX_RETRIES = 3  # maximum 429 retries per page fetch
+_MAX_RETRY_WAIT = 60.0  # cap on Retry-After honour (seconds)
 
 # Default salary currency by Adzuna country code
 _COUNTRY_CURRENCY: dict[str, str] = {
@@ -197,15 +201,43 @@ class AdzunaAdapter:
         app_id: str | None = None,
         app_key: str | None = None,
         country: str = "au",
+        page_delay: float = _DEFAULT_PAGE_DELAY,
+        max_retries: int = _MAX_RETRIES,
     ) -> None:
         self.app_id = app_id if app_id is not None else os.environ["ADZUNA_APP_ID"]
         self.app_key = app_key if app_key is not None else os.environ["ADZUNA_APP_KEY"]
         self.country = country.lower()
         self.requests_made = 0  # actual HTTP requests issued (pipeline reads this)
         self.run_date: str | None = None  # injected by the pipeline for first_seen_at
+        self.page_delay = page_delay  # seconds to sleep between pages
+        self.max_retries = max_retries  # maximum retries on 429
         # Unknown country code => currency unknown (never guess); the salary
         # comparison treats it via the unknown-salary policy.
         self._currency = _COUNTRY_CURRENCY.get(self.country)
+
+    def _fetch_page(self, client: httpx.Client, url: str, params: dict[str, Any]) -> httpx.Response:
+        """Fetch one page, honouring Retry-After on 429 with bounded retries.
+
+        Raises httpx.HTTPStatusError if all retries are exhausted or for non-429 errors.
+        """
+        for attempt in range(self.max_retries + 1):
+            self.requests_made += 1
+            response = client.get(url, params=params)
+            if response.status_code == 429:
+                if attempt == self.max_retries:
+                    response.raise_for_status()
+                wait = _MAX_RETRY_WAIT
+                retry_after = response.headers.get("Retry-After")
+                if retry_after is not None:
+                    try:
+                        wait = min(float(retry_after), _MAX_RETRY_WAIT)
+                    except ValueError:
+                        pass
+                time.sleep(wait)
+                continue
+            response.raise_for_status()
+            return response
+        raise RuntimeError("unreachable: _fetch_page loop exited without return or raise")
 
     def search(self, keyword: str, location: str, max_results: int = 50) -> list[RawListing]:
         """Fetch raw listings from Adzuna for one keyword+location query.
@@ -213,6 +245,12 @@ class AdzunaAdapter:
         Always requests _PAGE_SIZE items per call; stops when Adzuna returns fewer
         than _PAGE_SIZE (last page) or when max_results is reached. Results are
         sliced to max_results before returning.
+
+        A configurable per-page delay (`page_delay`) is inserted between pages for
+        politeness. On 429 responses the Retry-After header is honoured (capped at
+        _MAX_RETRY_WAIT) and the page is retried up to `max_retries` times before
+        the error is re-raised.
+
         Raises httpx.HTTPError on network / auth failures (caller handles gracefully).
         """
         results: list[RawListing] = []
@@ -230,10 +268,10 @@ class AdzunaAdapter:
                 }
 
                 url = f"{_BASE_URL}/{self.country}/search/{page}"
-                self.requests_made += 1  # count the attempt even if it fails
-                response = client.get(url, params=params)
-                response.raise_for_status()
+                if page > 1 and self.page_delay > 0:
+                    time.sleep(self.page_delay)
 
+                response = self._fetch_page(client, url, params)
                 data = response.json()
                 page_results: list[RawListing] = data.get("results") or []
                 if not page_results:
