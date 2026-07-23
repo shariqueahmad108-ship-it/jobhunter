@@ -5,7 +5,8 @@
 
 Prioritised **work items** the `build` beat implements one at a time. One work
 item = one branch = one PR. Regenerated 2026-07-24: ALL previously planned
-work items are built — there are currently NO open work items for the loop.
+work items are built AND MERGED to main (full suite green 2026-07-24) —
+there are currently NO open work items for the loop.
 
 REMINDER (AGENTS.md): build iterations never modify files under `specs/`.
 
@@ -27,7 +28,8 @@ note), title geo-hint flags for bare-Remote listings, and the hybrid_ok
 remote-country drop (a "remote (US only)" role is dropped for an AU-bound
 profile even under hybrid_ok).
 
-2026-07-23 evening loop run (reviewed 2026-07-24, merged to main):
+2026-07-23 evening loop run (reviewed and merged to main 2026-07-24, merge
+commits 9cb6545 / 961cd0b / 576d74c; all work branches deleted):
 
 - `karynne-source-config` (d03e960): workday_path/workday_instance profile
   validation to match the ATS adapter; sibling tests migrated from
