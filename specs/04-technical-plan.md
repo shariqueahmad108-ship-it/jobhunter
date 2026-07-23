@@ -1,7 +1,3 @@
----
-status: done
----
-
 # 04 — Technical Plan & Roadmap
 
 This is *how* the tool gets built from the specs. It commits to as little as possible up front —

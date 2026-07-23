@@ -79,3 +79,12 @@ tests and the existing suite must pass before committing.
   the actual agent and model running (e.g. `Claude (Sonnet 4.5)`). Do not
   hardcode either, and never add a `Co-Authored-By:` trailer for an agent.
 - One commit per build iteration (the change + its spec `status` flip).
+
+
+## Spec files are read-only for build iterations
+
+Build iterations MUST NOT modify any file under `specs/`. No `status:`
+frontmatter, no "known gaps" comments, no progress notes — the specs are the
+source of truth, not a scratchpad, and header stamps conflict across branches.
+Progress and gap notes belong in `IMPLEMENTATION_PLAN.md`. Only `plan`/`update`
+beats (or the human) may touch `specs/`.

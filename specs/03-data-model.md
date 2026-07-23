@@ -1,7 +1,3 @@
----
-status: done
----
-
 # 03 — Data Model
 
 Three core shapes drive the whole tool: the **JobListing** (what comes in), the **Profile**
@@ -87,7 +83,8 @@ hard_requirements:               # STAGE 4 — any failure drops the listing; un
                                  #   matched against parsed city/region/country, exact, case-insensitive
   locations_allowed: [string]    # [] = anywhere (subject to remote_policy + exclude_locations);
                                  #   non-empty = positively restrict to these places; same matching
-  seniority:                     # per-track bounds; omit a track to disallow it entirely
+  seniority:                     # per-track bounds; omit a track to disallow it entirely;
+                                 #   omit the WHOLE key = no seniority filtering (all tracks pass)
     ic:         {min: string, max: string | null} | null
     management: {min: string, max: string | null} | null
   salary_floor:      number | null   # null = no floor
@@ -109,7 +106,10 @@ preferences:                     # STAGE 5 — soft scoring inputs
   # that data. Reintroduce only alongside an enrichment source (see 04 §Later).
 
 weights:                         # STAGE 5 — relative; 0 disables a component; normalized over
-  skill_match:    number         #   the ACTIVE set (see 02 §Stage 5 normalization rule)
+                                 #   the ACTIVE set (see 02 §Stage 5 normalization rule).
+                                 #   VALIDATION: at least one weight must be present and > 0;
+                                 #   negative weights are invalid (fail loud).
+  skill_match:    number
   seniority_fit:  number
   compensation:   number
   location_fit:   number

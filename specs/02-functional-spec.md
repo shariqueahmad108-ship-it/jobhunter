@@ -1,25 +1,3 @@
----
-status: done
----
-
-<!-- Known gaps (updated by digest-html build iteration):
-  All Stage 1–7 acceptance criteria are now implemented.
-  digest-html additions:
-  - render_html(): full HTML digest with inline CSS; same two-section structure
-    (New This Run / Previously Shown) as render_markdown(); XSS-safe via html.escape();
-    all required row fields present (id, score, reason, location, salary, sources, date,
-    unknown_flags).
-  - result_to_dict() + render_json_data(): JSON data file with all scored survivors
-    (new + previously seen); round-trips without loss of any scored field; written to
-    digests/<run_at>.json on every run.
-  - CLI now honours output.format (markdown|html|both): Markdown printed to stdout
-    (markdown/both); HTML written to digests/<run_at>.html (html/both); JSON always
-    written to digests/<run_at>.json.
-  - 24 new tests in tests/test_digest.py cover HTML structure, required-field presence,
-    XSS escaping, section toggling, max_shown cap, result_to_dict round-trip, and
-    render_json_data aggregation.
--->
-
 # 02 — Functional Spec
 
 This describes *what the tool does*. Behaviors are grouped into a pipeline: **ingest → normalize
@@ -155,7 +133,8 @@ Configurable hard filters:
   digest (it may be remote-elsewhere-only, or based somewhere excluded).
 - **Seniority:** must be within `[min_seniority, max_seniority]` **on its own track**; the profile
   sets bounds per track (either track may be disabled entirely). A listing whose track is
-  disallowed is dropped; unknown seniority is kept (policy above).
+  disallowed is dropped; unknown seniority is kept (policy above). Omitting the whole
+  `seniority` key disables seniority filtering entirely (all listings pass this filter).
 - **Compensation floor:** applied only when the salary is **comparable**: same currency as
   `salary_currency` (or convertible — see below) and annualizable. Comparison rule:
   annualize (`day × 260`, `hour × 2080`, `month × 12`), convert currency using the pinned rates
