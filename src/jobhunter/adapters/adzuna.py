@@ -107,19 +107,38 @@ _REMOTE_POSITIVE_RE = re.compile(
 )
 
 
+_HYBRID_RE = re.compile(r"\bhybrid\b", re.IGNORECASE)
+
+# Adzuna search results carry truncated description snippets (~250 chars); a
+# snippet shorter than this is treated as truncated text with less context.
+_TRUNCATED_DESC_CHARS = 500
+
+
 def _detect_remote(title: str, description: str, location_raw: str) -> bool:
-    """Detect remoteness conservatively (see plan item fix-remote-detection).
+    """Detect remoteness (see plan item fix-remote-detection + recall principle).
 
     Title and location strings are strong signals: a bare "remote" there counts.
-    Description text is weak: only explicit positive phrases count, and any
-    negated mention ("no remote work") vetoes description-based detection.
+    Description text is weaker: negated mentions ("no remote work") always veto,
+    and "hybrid" vetoes description-only detection. Beyond that, the rule adapts
+    to how much text we have — spec 01 "recall on filtering":
+    - FULL descriptions: only explicit positive phrases count ("fully remote",
+      "work from home", ...) — a bare passing mention is too weak.
+    - TRUNCATED snippets (Adzuna search results): a bare "remote" counts,
+      because the explicit phrasing is usually beyond the cutoff and dropping
+      these loses genuinely remote roles.
     """
     if _REMOTE_WORD_RE.search(title) or _REMOTE_WORD_RE.search(location_raw):
         return True
     head = description[:1000]
     if _REMOTE_NEGATION_RE.search(head):
         return False
-    return bool(_REMOTE_POSITIVE_RE.search(head))
+    if _HYBRID_RE.search(head):
+        return False
+    if _REMOTE_POSITIVE_RE.search(head):
+        return True
+    if len(description) < _TRUNCATED_DESC_CHARS:
+        return bool(_REMOTE_WORD_RE.search(head))
+    return False
 
 
 def _parse_location(loc: dict[str, Any]) -> Location:

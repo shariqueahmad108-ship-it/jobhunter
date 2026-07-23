@@ -187,9 +187,24 @@ def test_detect_remote_description_negation_rejected():
     assert _detect_remote("Engineer", "This position cannot be remote.", "Sydney") is False
 
 
-def test_detect_remote_description_bare_mention_not_enough():
-    """A bare 'remote' in the description body is too weak a signal."""
-    assert _detect_remote("Engineer", "Our team spans several remote offices.", "Sydney") is False
+def test_detect_remote_full_description_bare_mention_not_enough():
+    """In a FULL description, a bare 'remote' is too weak a signal."""
+    long_desc = ("Our team spans several remote offices. " + "We build software. " * 40)
+    assert len(long_desc) >= 500
+    assert _detect_remote("Engineer", long_desc, "Sydney") is False
+
+
+def test_detect_remote_truncated_snippet_bare_mention_counts():
+    """In a TRUNCATED snippet (Adzuna), a bare 'remote' counts — recall over precision."""
+    assert _detect_remote("Engineer", "This role can be worked remote from anywhere in AU...", "Melbourne") is True
+
+
+def test_detect_remote_truncated_snippet_hybrid_vetoes():
+    assert _detect_remote("Engineer", "Hybrid role, 2 days remote per week.", "Melbourne") is False
+
+
+def test_detect_remote_truncated_snippet_negation_vetoes():
+    assert _detect_remote("Engineer", "No remote work available for this role.", "Melbourne") is False
 
 
 def test_detect_remote_description_positive_phrases():
