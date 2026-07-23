@@ -966,12 +966,12 @@ def test_sources_remotive_unknown_key_rejected(tmp_path: Path) -> None:
         load_profile(_write(tmp_path, data))
 
 
-def test_sources_remoteok_and_careerjet_valid(tmp_path: Path) -> None:
+def test_sources_remoteok_and_jooble_valid(tmp_path: Path) -> None:
     data = _minimal()
-    data["sources"] = {"remoteok": {"enabled": False}, "careerjet": {"enabled": False}}
+    data["sources"] = {"remoteok": {"enabled": False}, "jooble": {"enabled": False}}
     r = load_profile(_write(tmp_path, data))
     assert r["sources"]["remoteok"]["enabled"] is False
-    assert r["sources"]["careerjet"]["enabled"] is False
+    assert r["sources"]["jooble"]["enabled"] is False
 
 
 def test_sources_remoteok_unknown_key_rejected(tmp_path: Path) -> None:

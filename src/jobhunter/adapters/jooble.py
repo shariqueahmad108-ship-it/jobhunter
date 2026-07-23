@@ -102,8 +102,7 @@ class JoobleAdapter:
         api_key:          Jooble API key (falls back to JOOBLE_API_KEY env).
         default_currency: currency assumed for bare "$" salaries. Defaults to
                           "AUD" — the profiles and query locations are AU-centric,
-                          so results are AU-located; matches the Careerjet adapter's
-                          locale-based default. Pass None to keep bare-symbol
+                          so results are AU-located. Pass None to keep bare-symbol
                           salaries as unknown.
         page_delay:       seconds to sleep between pages (politeness).
     """

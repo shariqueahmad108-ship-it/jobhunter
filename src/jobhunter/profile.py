@@ -184,7 +184,7 @@ def _validate_queries(queries: dict) -> None:
 
 
 def _validate_sources(sources: dict) -> None:
-    allowed = {"adzuna", "ats_watchlist", "feeds", "remotive", "remoteok", "careerjet", "jooble"}
+    allowed = {"adzuna", "ats_watchlist", "feeds", "remotive", "remoteok", "jooble"}
     _unknown_keys(sources, allowed, "sources")
 
     adzuna = sources.get("adzuna")
@@ -247,7 +247,7 @@ def _validate_sources(sources: dict) -> None:
         if "categories" in remotive:
             _expect_list_of_strings(remotive["categories"], "sources.remotive.categories")
 
-    for src_name in ("remoteok", "careerjet", "jooble"):
+    for src_name in ("remoteok", "jooble"):
         cfg = sources.get(src_name)
         if cfg is not None:
             _expect_type(cfg, dict, f"sources.{src_name}")

@@ -80,7 +80,6 @@ sources:                            # unified source activation — a source abs
   #   - { name: "myfeed", url: "https://example.com/jobs.rss" }
   # remotive: { enabled: true, categories: ["devrel"] }
   # remoteok: { enabled: true }
-  # careerjet: { enabled: true }   # needs CAREERJET_AFFILIATE_ID env var
   # jooble: { enabled: true }      # needs JOOBLE_API_KEY env var (free key)
 
 search_mode: "active_employed"      # active_unemployed | active_employed | passive_employed

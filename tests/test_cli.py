@@ -209,7 +209,7 @@ def test_sources_ats_watchlist_workday_wires_ats_adapter():
 
 
 # ---------------------------------------------------------------------------
-# sources: block — END-TO-END criterion for feeds, remotive, remoteok, careerjet
+# sources: block — END-TO-END criterion for feeds, remotive, remoteok, jooble
 # (karynne-source-config work item)
 # ---------------------------------------------------------------------------
 
@@ -307,45 +307,6 @@ def test_sources_remoteok_enabled_constructs_adapter():
     with patch.dict(_os.environ, env, clear=True):
         adapters = _build_adapters(profile)
     assert any(a.name == "remoteok" for a in adapters)
-
-
-def test_sources_careerjet_with_credential_constructs_adapter():
-    """sources.careerjet.enabled=True + CAREERJET_AFFILIATE_ID => CareerjetAdapter."""
-    import os as _os
-    from unittest.mock import patch
-
-    from jobhunter.cli import _build_adapters
-
-    profile = {
-        "queries": {"ats_watchlist": []},
-        "sources": {"careerjet": {"enabled": True}},
-    }
-    env = {k: v for k, v in _os.environ.items()
-           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "CAREERJET_AFFILIATE_ID")}
-    env["CAREERJET_AFFILIATE_ID"] = "test-affiliate-id"
-    with patch.dict(_os.environ, env, clear=True):
-        adapters = _build_adapters(profile)
-    assert any(a.name == "careerjet" for a in adapters)
-
-
-def test_sources_careerjet_without_credential_skipped(capsys):
-    """sources.careerjet.enabled=True but no cred => no adapter, warning printed."""
-    import os as _os
-    from unittest.mock import patch
-
-    from jobhunter.cli import _build_adapters
-
-    profile = {
-        "queries": {"ats_watchlist": []},
-        "sources": {"careerjet": {"enabled": True}},
-    }
-    env = {k: v for k, v in _os.environ.items()
-           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "CAREERJET_AFFILIATE_ID")}
-    with patch.dict(_os.environ, env, clear=True):
-        adapters = _build_adapters(profile)
-    assert all(a.name != "careerjet" for a in adapters)
-    captured = capsys.readouterr()
-    assert "CAREERJET_AFFILIATE_ID" in captured.err
 
 
 def test_sources_jooble_with_credential_constructs_adapter():

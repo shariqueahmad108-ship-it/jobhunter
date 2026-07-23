@@ -51,7 +51,6 @@ def _build_adapters(profile: dict) -> list:
       sources.feeds          [{name, url}]          RSS/Atom, no creds
       sources.remotive       {enabled, categories}
       sources.remoteok       {enabled}
-      sources.careerjet      {enabled}              cred from CAREERJET_AFFILIATE_ID
 
     Legacy fallback: ``queries.ats_watchlist`` still activates the ATS adapter
     when ``sources.ats_watchlist`` is absent (deprecated — move it to sources:).
@@ -112,20 +111,6 @@ def _build_adapters(profile: dict) -> list:
         from jobhunter.adapters.remoteok import RemoteOKAdapter
 
         adapters.append(RemoteOKAdapter())
-
-    # --- Careerjet --------------------------------------------------------
-    if (sources.get("careerjet") or {}).get("enabled"):
-        careerjet_id = os.environ.get("CAREERJET_AFFILIATE_ID", "")
-        if careerjet_id:
-            from jobhunter.adapters.careerjet import CareerjetAdapter
-
-            adapters.append(CareerjetAdapter(affiliate_id=careerjet_id))
-        else:
-            print(
-                "Warning: sources.careerjet enabled but CAREERJET_AFFILIATE_ID "
-                "not set — Careerjet adapter skipped.",
-                file=sys.stderr,
-            )
 
     # --- Jooble -----------------------------------------------------------
     if (sources.get("jooble") or {}).get("enabled"):
