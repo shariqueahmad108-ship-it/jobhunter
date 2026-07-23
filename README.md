@@ -42,15 +42,82 @@ that remain available.)
 6. **Check work against acceptance criteria** in `02-functional-spec.md` — a feature is "done" only when its criteria pass against the fixture corpus (the loop runs these as `pytest`).
 7. **Amend the spec, not the code, when requirements change.** Then re-run `plan` and `build` — regeneration is **per stage, gated by the fixture tests** (see `04-technical-plan.md` §Regeneration policy), never an ungated full rewrite. If code lands outside the loop, `./tools/spec-loop/loop.sh update` back-fills the specs.
 
+## Scheduled runs (weekday-morning digest)
+
+Run `jobhunter run` on a schedule using `cron` (macOS/Linux) or any task
+scheduler. The tool is stateless between runs — the state file records what has
+been shown; everything else is re-fetched from sources.
+
+### File locations (defaults)
+
+| Path | Contents | Override |
+|------|----------|----------|
+| `profile.yaml` | Your search criteria | `--profile PATH` |
+| `state/state.yaml` | Seen-state + dismissals | `--state PATH` |
+| `digests/YYYY-MM-DD.md` | Markdown digest for the day | `--output-dir DIR` |
+| `digests/YYYY-MM-DD.json` | Machine-readable companion | same `--output-dir DIR` |
+
+Multi-profile runs use a per-profile state file and per-profile digest filenames
+automatically (`state-profile-ospo.yaml`, `2026-07-23-profile-ospo.md`, etc.).
+
+### Environment variables
+
+The Adzuna adapter requires:
+
+```
+ADZUNA_APP_ID=<your id>
+ADZUNA_APP_KEY=<your key>
+```
+
+Store these in a git-ignored `.env` and source it in your cron wrapper, or use
+your OS keychain / secret manager.
+
+### Example crontab (weekday mornings at 07:30)
+
+```cron
+# JobHunter — weekday digest at 07:30
+30 7 * * 1-5 cd /path/to/JobHunter && \
+  ADZUNA_APP_ID=xxx ADZUNA_APP_KEY=yyy \
+  python -m jobhunter run \
+    --profile profile.yaml \
+    --state state/state.yaml \
+    --output-dir digests \
+  >> logs/jobhunter.log 2>&1
+```
+
+Or use a wrapper script that sources `.env`:
+
+```bash
+#!/usr/bin/env bash
+# run-jobhunter.sh — source secrets then run the pipeline
+set -euo pipefail
+cd "$(dirname "$0")"
+source .env
+python -m jobhunter run --output-dir digests "$@"
+```
+
+```cron
+30 7 * * 1-5 /path/to/JobHunter/run-jobhunter.sh >> /path/to/JobHunter/logs/jobhunter.log 2>&1
+```
+
+### Suggested cadences (from `search_mode` presets)
+
+| `search_mode` | Cadence |
+|---|---|
+| `active_unemployed` | Daily |
+| `active_employed` | Each weekday |
+| `passive_employed` | Weekly |
+
+Set `search_mode` in `profile.yaml`; the tool prints which preset is active in
+each digest header.
+
 ## Status
 
 - [x] Spec pack drafted
 - [x] Build loop implemented (`tools/spec-loop/`)
 - [x] Spec review applied (2026-07-22): unknown-data policy, dual-track seniority + inference, currency/period comparison, scoped deal-breakers, `exclude_locations` + remote-only location policy, content-hash change detection, seen-vs-dismissed rework, CLI dismissals, score normalization rule, employment filter, fixture corpus + per-stage regeneration policy; industry/size scoring cut from v1; scoring locked rule-based/deterministic
-- [ ] `git init` + first commit (the loop needs a git base)
-- [ ] Remaining open questions resolved (see `04-technical-plan.md` §Open questions — tagged by phase)
-- [ ] `profile.yaml` filled in
-- [ ] Golden fixture corpus captured
-- [ ] Phase 0–1 (scaffold + ingest + filter) built
-- [ ] Phase 2 (scoring + ranking) built
-- [ ] Phase 3 (freshness + digest + dismiss CLI) built
+- [x] Phase 0–1 (scaffold + ingest + filter) built
+- [x] Phase 2 (scoring + ranking) built
+- [x] Phase 3 (freshness + digest + dismiss CLI) built
+- [ ] Golden fixture corpus captured (in progress)
+- [ ] ATS company-watchlist adapter (in progress)

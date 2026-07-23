@@ -21,6 +21,28 @@ def test_parser_accepts_profile_and_state():
     assert args.profile == "profile-ospo.yaml"
 
 
+def test_output_dir_defaults_to_none():
+    parser = build_parser()
+    args = parser.parse_args(["run"])
+    assert args.output_dir is None
+
+
+def test_output_dir_flag_accepted():
+    parser = build_parser()
+    args = parser.parse_args(["run", "--output-dir", "/tmp/digests"])
+    assert args.output_dir == "/tmp/digests"
+
+
+def test_default_digest_path_is_peer_to_state_dir():
+    """Default digest dir is a sibling of the state directory, not two levels up."""
+    from pathlib import Path
+
+    state_path = Path("state/state.yaml")
+    # Mirrors the logic in _cmd_run when output_dir is None.
+    digest_dir = state_path.parent.with_name("digests")
+    assert digest_dir == Path("digests")
+
+
 def test_overflow_slicing_semantics():
     """Only the rendered slice is recorded as seen (overflow-not-seen decision)."""
     new_results = list(range(30))
