@@ -58,6 +58,11 @@ while it exists, the loop treats that work item as in-progress and skips it.
     up (it references a `queries.ats_watchlist` profile field that must be
     added to the profile schema + specs/03), write tests, and land it
     properly. Delete the draft file in the same branch.
+    Seed the example watchlist with open-source-heavy employers matching the
+    user's targeting (OSPO / community / governance roles) — e.g. GitHub,
+    GitLab, Canonical, Red Hat, HashiCorp, Grafana Labs, Elastic — since
+    Adzuna's coverage of these role families is expected to be thin. This makes
+    the ATS adapter the highest-value remaining item for the actual search.
     Draft review findings to address:
     - `queries.ats_watchlist` must be added to the profile schema (specs/03 +
       profile.py + profile.example.yaml): list of {ats, slug, name?}.
@@ -79,6 +84,11 @@ while it exists, the loop treats that work item as in-progress and skips it.
     cases listed there (incl. the remote-but-Sydney-based case and the new
     P0/P1 regression cases). Wire as pytest fixtures; every stage's
     acceptance-criteria tests run against it.
+    Draw the corpus from the PROFILE'S ACTUAL SEARCH DOMAIN — open source /
+    community / governance roles (OSPO, DevRel, head of community), not
+    generic software-engineering listings — including the low-paid
+    community-coordinator lookalikes the salary floor must catch and
+    management-track titles the seniority inference must classify.
     Validation: full `python -m pytest -q`.
 
 3. **`scheduled-run-docs`** — document the cron/scheduled-task invocation for
@@ -94,12 +104,14 @@ while it exists, the loop treats that work item as in-progress and skips it.
    on 429 with bounded retries. Do together with or after item 1.
    Validation: `python -m pytest tests/test_adzuna.py -q`.
 
-5. **`overflow-seen-ux`** — decide and implement the intended UX for listings
-   beyond `output.max_shown`: they are currently marked seen even though they
-   only ever appear in the JSON data file (spec-consistent — "counted and
-   available in the data file" — but means a role you never saw in the digest
-   won't resurface). Options: (a) keep, but say "N more in data file" in the
-   digest; (b) don't mark overflow as seen so it resurfaces next run; (c) spill
-   overflow into the "Previously shown" section. Pick one, update spec 02
-   §Stage 7 and the seen-state logic to match.
+5. **`overflow-not-seen`** — DECIDED (2026-07-23): listings beyond
+   `output.max_shown` must NOT be marked seen — they stay eligible and
+   resurface in the next run's shortlist, so nothing silently disappears into
+   the JSON file. Implement: `cli.py::_cmd_run` records seen-state only for
+   the listings actually rendered in the digest (the capped set + previously
+   shown); the digest keeps its "showing X of Y" note. Update spec 02 §Stage 7
+   ("Seen-state: record … for every listing shown" → "…for every listing
+   RENDERED in the digest; overflow beyond max_shown is not recorded and
+   re-surfaces next run") and add a regression test: 30 results with
+   max_shown 25 → next identical run shows the remaining 5 as new.
    Validation: `python -m pytest tests/test_state.py tests/test_digest.py -q`.
