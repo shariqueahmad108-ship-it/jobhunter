@@ -112,7 +112,15 @@ def _validate_identity(identity: dict) -> None:
 def _validate_queries(queries: dict) -> None:
     _unknown_keys(
         queries,
-        {"keywords", "locations", "max_results_per_query", "max_requests_per_run", "ats_watchlist"},
+        {
+            "keywords",
+            "locations",
+            "max_results_per_query",
+            "max_requests_per_run",
+            "ats_watchlist",
+            "remotive",
+            "remoteok",
+        },
         "queries",
     )
     kw = _require(queries, "keywords", "queries")
@@ -128,25 +136,41 @@ def _validate_queries(queries: dict) -> None:
     if "max_requests_per_run" in queries and not _is_int(queries["max_requests_per_run"]):
         raise ProfileError("queries.max_requests_per_run: expected int")
     watchlist = queries.get("ats_watchlist")
-    if watchlist is None:
-        return
-    _expect_type(watchlist, list, "queries.ats_watchlist")
-    for i, entry in enumerate(watchlist):
-        _expect_type(entry, dict, f"queries.ats_watchlist[{i}]")
-        _unknown_keys(entry, {"ats", "slug", "name"}, f"queries.ats_watchlist[{i}]")
-        ats_type = _require(entry, "ats", f"queries.ats_watchlist[{i}]")
-        _expect_type(ats_type, str, f"queries.ats_watchlist[{i}].ats")
-        if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
-            raise ProfileError(
-                f"queries.ats_watchlist[{i}].ats: must be one of "
-                f"{sorted(_SUPPORTED_ATS_TYPES)}, got {ats_type!r}"
-            )
-        slug = _require(entry, "slug", f"queries.ats_watchlist[{i}]")
-        _expect_type(slug, str, f"queries.ats_watchlist[{i}].slug")
-        if not slug.strip():
-            raise ProfileError(f"queries.ats_watchlist[{i}].slug: must not be empty")
-        if "name" in entry and entry["name"] is not None:
-            _expect_type(entry["name"], str, f"queries.ats_watchlist[{i}].name")
+    if watchlist is not None:
+        _expect_type(watchlist, list, "queries.ats_watchlist")
+        for i, entry in enumerate(watchlist):
+            _expect_type(entry, dict, f"queries.ats_watchlist[{i}]")
+            _unknown_keys(entry, {"ats", "slug", "name"}, f"queries.ats_watchlist[{i}]")
+            ats_type = _require(entry, "ats", f"queries.ats_watchlist[{i}]")
+            _expect_type(ats_type, str, f"queries.ats_watchlist[{i}].ats")
+            if ats_type.lower() not in _SUPPORTED_ATS_TYPES:
+                raise ProfileError(
+                    f"queries.ats_watchlist[{i}].ats: must be one of "
+                    f"{sorted(_SUPPORTED_ATS_TYPES)}, got {ats_type!r}"
+                )
+            slug = _require(entry, "slug", f"queries.ats_watchlist[{i}]")
+            _expect_type(slug, str, f"queries.ats_watchlist[{i}].slug")
+            if not slug.strip():
+                raise ProfileError(f"queries.ats_watchlist[{i}].slug: must not be empty")
+            if "name" in entry and entry["name"] is not None:
+                _expect_type(entry["name"], str, f"queries.ats_watchlist[{i}].name")
+
+    remotive_cfg = queries.get("remotive")
+    if remotive_cfg is not None:
+        _expect_type(remotive_cfg, dict, "queries.remotive")
+        _unknown_keys(remotive_cfg, {"enabled", "categories"}, "queries.remotive")
+        if "enabled" in remotive_cfg:
+            _expect_type(remotive_cfg["enabled"], bool, "queries.remotive.enabled")
+        categories = remotive_cfg.get("categories")
+        if categories is not None:
+            _expect_list_of_strings(categories, "queries.remotive.categories")
+
+    remoteok_cfg = queries.get("remoteok")
+    if remoteok_cfg is not None:
+        _expect_type(remoteok_cfg, dict, "queries.remoteok")
+        _unknown_keys(remoteok_cfg, {"enabled"}, "queries.remoteok")
+        if "enabled" in remoteok_cfg:
+            _expect_type(remoteok_cfg["enabled"], bool, "queries.remoteok.enabled")
 
 
 def _validate_seniority_bounds(seniority: dict, path: str) -> None:

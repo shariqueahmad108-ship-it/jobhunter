@@ -63,6 +63,19 @@ def _build_adapters(profile: dict) -> list:
 
         adapters.append(AtsAdapter(watchlist))
 
+    remotive_cfg = profile.get("queries", {}).get("remotive") or {}
+    if remotive_cfg.get("enabled"):
+        from jobhunter.adapters.remotive import RemotiveAdapter
+
+        categories = remotive_cfg.get("categories") or []
+        adapters.append(RemotiveAdapter(categories=categories))
+
+    remoteok_cfg = profile.get("queries", {}).get("remoteok") or {}
+    if remoteok_cfg.get("enabled"):
+        from jobhunter.adapters.remoteok import RemoteOKAdapter
+
+        adapters.append(RemoteOKAdapter())
+
     return adapters
 
 
@@ -98,9 +111,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     # FX rates are global (fx_rates.yaml at repo root); the profile may override
     # individual currencies. Injected here so filter/score read one merged table.
-    profile["hard_requirements"]["fx_rates"] = effective_fx_rates(
-        profile, load_fx_rates()
-    )
+    profile["hard_requirements"]["fx_rates"] = effective_fx_rates(profile, load_fx_rates())
 
     adapters = _build_adapters(profile)
 
