@@ -20,7 +20,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from .digest import render_markdown
+from .digest import render_html, render_json_data, render_markdown
 from .pipeline import run as pipeline_run
 from .profile import ProfileError, load_profile
 from .state import (
@@ -83,20 +83,62 @@ def _cmd_run(args: argparse.Namespace) -> int:
     output_cfg = profile.get("output", {})
     max_shown = int(output_cfg.get("max_shown", 25))
     show_prev = bool(output_cfg.get("show_previously_seen", True))
+    fmt = str(output_cfg.get("format", "markdown"))  # markdown | html | both
 
     new_results, prev_results = partition_results(results, state)
 
     report.shown_new = len(new_results)
     report.shown_previous = len(prev_results)
 
-    digest = render_markdown(
-        new_results,
-        report,
-        previously_seen=prev_results if show_prev else None,
-        max_shown=max_shown,
-        show_previously_seen=show_prev,
-    )
-    print(digest)
+    prev_for_render = prev_results if show_prev else None
+
+    # Determine output directory alongside the state file.
+    if hasattr(args, "output_dir"):
+        digest_dir = Path(args.output_dir)
+    else:
+        digest_dir = state_path.parent.parent / "digests"
+    digest_dir.mkdir(parents=True, exist_ok=True)
+    slug = today  # ISO date string used as filename stem
+
+    # Always write the JSON data file (machine-readable companion).
+    json_path = digest_dir / f"{slug}.json"
+    json_data = render_json_data(new_results, prev_for_render)
+    try:
+        json_path.write_text(json_data, encoding="utf-8")
+        print(f"Data file: {json_path}", file=sys.stderr)
+    except OSError as e:
+        print(f"Warning: could not write data file {json_path}: {e}", file=sys.stderr)
+
+    # Render and emit digest in the configured format(s).
+    if fmt in ("markdown", "both"):
+        md = render_markdown(
+            new_results,
+            report,
+            previously_seen=prev_for_render,
+            max_shown=max_shown,
+            show_previously_seen=show_prev,
+        )
+        print(md)
+        md_path = digest_dir / f"{slug}.md"
+        try:
+            md_path.write_text(md, encoding="utf-8")
+        except OSError as e:
+            print(f"Warning: could not write digest {md_path}: {e}", file=sys.stderr)
+
+    if fmt in ("html", "both"):
+        html_content = render_html(
+            new_results,
+            report,
+            previously_seen=prev_for_render,
+            max_shown=max_shown,
+            show_previously_seen=show_prev,
+        )
+        html_path = digest_dir / f"{slug}.html"
+        try:
+            html_path.write_text(html_content, encoding="utf-8")
+            print(f"HTML digest: {html_path}", file=sys.stderr)
+        except OSError as e:
+            print(f"Warning: could not write HTML digest {html_path}: {e}", file=sys.stderr)
 
     # Record everything shown so next run knows what's been seen.
     all_shown = new_results + (prev_results if show_prev else [])

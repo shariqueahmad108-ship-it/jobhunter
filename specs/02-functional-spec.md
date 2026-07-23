@@ -1,19 +1,23 @@
 ---
-status: partial
+status: done
 ---
 
-<!-- Known gaps (updated by seen-state build iteration):
-  Stages 1–7 (seen-state) are now implemented.
-  Stage 7 seen-state: src/jobhunter/state.py provides load_state(), save_state(),
-    partition_results() (new vs. previously seen), update_state(), dismiss_ids(),
-    undismiss_id(). The CLI run command loads state, partitions results, updates state
-    after display, and saves. dismiss/undismiss/dismissed CLI commands are fully
-    implemented. The digest renders "New This Run" and "Previously shown" sections;
-    max_shown cap applied to the new section. 24 tests in tests/test_state.py cover
-    all Stage 7 seen-state and dismissal acceptance criteria.
-  Remaining gaps (Phase 3):
-  - Stage 7 data file: JSON/CSV data file for all scored survivors (digest-html item).
-  - Stage 7 HTML digest: rich HTML output and header summary (digest-html item).
+<!-- Known gaps (updated by digest-html build iteration):
+  All Stage 1–7 acceptance criteria are now implemented.
+  digest-html additions:
+  - render_html(): full HTML digest with inline CSS; same two-section structure
+    (New This Run / Previously Shown) as render_markdown(); XSS-safe via html.escape();
+    all required row fields present (id, score, reason, location, salary, sources, date,
+    unknown_flags).
+  - result_to_dict() + render_json_data(): JSON data file with all scored survivors
+    (new + previously seen); round-trips without loss of any scored field; written to
+    digests/<run_at>.json on every run.
+  - CLI now honours output.format (markdown|html|both): Markdown printed to stdout
+    (markdown/both); HTML written to digests/<run_at>.html (html/both); JSON always
+    written to digests/<run_at>.json.
+  - 24 new tests in tests/test_digest.py cover HTML structure, required-field presence,
+    XSS escaping, section toggling, max_shown cap, result_to_dict round-trip, and
+    render_json_data aggregation.
 -->
 
 # 02 — Functional Spec
