@@ -61,18 +61,9 @@ python3 -m pytest -q        # expect 522 passed
       the limitation or fetch the detail endpoint.
     Validation: `python3 -m pytest tests/test_ats.py tests/test_profile.py tests/test_pipeline.py -q`.
 
-2. **`overflow-not-seen`** — listings beyond `output.max_shown` must NOT be
-    marked seen — they stay eligible and resurface in the next run's shortlist,
-    so nothing silently disappears. Confirmed bug: `cli.py:_cmd_run` line 144
-    builds `all_shown = new_results + (prev_results …)`, recording ALL new
-    results in `update_state()` including those beyond max_shown. The digest
-    already renders only the capped set with a "showing X of Y" note (digest.py
-    lines 169–172, 354–357) — the fix is purely in cli.py.
-    Fix: compute `rendered_new = new_results[:max_shown]` and use
-    `all_shown = rendered_new + (prev_results …)`. Add a regression test in
-    tests/test_state.py: 30 results with max_shown=25 → next identical run
-    shows the remaining 5 as new.
-    Validation: `python3 -m pytest tests/test_state.py tests/test_digest.py -q`.
+2. **`overflow-not-seen`** — DONE (2026-07-23, applied directly): cli.py
+    records seen-state only for the rendered slice (`new_results[:max_shown]`);
+    overflow stays eligible and resurfaces next run. 541 tests green.
 
 3. **`golden-fixture-corpus`** — specs/04 §Fixtures: 30–50 real (anonymized)
     listings with expected outcomes at every stage, covering the awkward

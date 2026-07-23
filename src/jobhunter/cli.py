@@ -156,8 +156,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except OSError as e:
             print(f"Warning: could not write HTML digest {html_path}: {e}", file=sys.stderr)
 
-    # Record everything shown so next run knows what's been seen.
-    all_shown = new_results + (prev_results if show_prev else [])
+    # Record what was actually RENDERED as seen (spec 02 §Stage 7, decided
+    # 2026-07-23): overflow beyond max_shown is NOT recorded — those roles stay
+    # eligible and resurface in the next run's shortlist.
+    rendered_new = new_results[:max_shown]
+    all_shown = rendered_new + (prev_results if show_prev else [])
     update_state(state, all_shown, today)
     try:
         save_state(state, state_path)
