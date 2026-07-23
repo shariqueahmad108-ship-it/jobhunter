@@ -2,8 +2,8 @@
 """ATS company job-board adapter.
 
 Fetches all open roles from a watchlist of target companies' ATS job boards.
-Supports Greenhouse, Lever, and Ashby — all publicly accessible JSON APIs
-that require no authentication for reading public job postings.
+Supports Greenhouse, Lever, Ashby, and Workday — all publicly accessible JSON
+APIs that require no authentication for reading public job postings.
 
 The watchlist is configured in profile queries.ats_watchlist.
 Unlike keyword-based adapters, keyword and location are ignored; the hard
@@ -13,6 +13,7 @@ Sources used:
   Greenhouse: GET  https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true
   Lever:      GET  https://api.lever.co/v0/postings/{slug}?mode=json
   Ashby:      POST https://jobs.ashbyhq.com/api/non-authed/job-board/jobs
+  Workday:    POST https://{slug}.wd{N}.myworkdayjobs.com/wday/cxs/{workday_path}/jobs
 
 Note: Ashby's public job-board API only exposes descriptionSocial (a short
 teaser), not the full job description. The full text lives behind the detail
@@ -21,6 +22,20 @@ requests and is not fetched here to stay within the single-fetch-per-company
 design. Downstream keyword filtering therefore only sees the teaser text for
 Ashby listings.
 
+Note: Workday's public job-board list endpoint does not expose job descriptions.
+Downstream keyword filtering will only match on title and location for Workday
+listings. Full descriptions are available only via per-listing detail requests,
+which are not made here to stay within the single-fetch-per-company design.
+
+Workday watchlist entry fields:
+  ats:              "workday"
+  slug:             URL subdomain, e.g. "redhat" from redhat.wd5.myworkdayjobs.com (required)
+  name:             display name, defaults to slug (optional)
+  workday_path:     CXS path after /wday/cxs/, e.g. "RedHat/Jobs" (optional; defaults to
+                    "{slug}/{slug}" which works for some tenants — check the company's Workday
+                    board URL and override this field when the default does not match)
+  workday_instance: the wd instance number, e.g. 5 for .wd5. (optional; defaults to 5)
+
 See: specs/04-technical-plan.md §Data sources
      specs/02-functional-spec.md §Stage 1–2
 """
@@ -28,7 +43,7 @@ See: specs/04-technical-plan.md §Data sources
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -51,6 +66,7 @@ _ATS_SOURCE_PREFIX = {
     "greenhouse": "ats_greenhouse",
     "lever": "ats_lever",
     "ashby": "ats_ashby",
+    "workday": "ats_workday",
 }
 
 _LEVER_COMMITMENT_MAP: dict[str, str] = {
@@ -77,7 +93,25 @@ _ASHBY_EMPLOYMENT_MAP: dict[str, str] = {
     "temporary": "temp",
 }
 
-SUPPORTED_ATS_TYPES: frozenset[str] = frozenset({"greenhouse", "lever", "ashby"})
+_WORKDAY_TIME_TYPE_MAP: dict[str, str] = {
+    "full time": "full_time",
+    "full-time": "full_time",
+    "fulltime": "full_time",
+    "part time": "part_time",
+    "part-time": "part_time",
+    "parttime": "part_time",
+    "contract": "contract",
+    "contractor": "contract",
+    "intern": "internship",
+    "internship": "internship",
+    "temporary": "temp",
+    "temp": "temp",
+}
+
+SUPPORTED_ATS_TYPES: frozenset[str] = frozenset({"greenhouse", "lever", "ashby", "workday"})
+
+_WORKDAY_FETCH_LIMIT = 20  # items per page (conservative Workday default)
+_WORKDAY_MAX_ITEMS = 500  # safety cap per company
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +149,52 @@ def _fetch_ashby(slug: str) -> list[RawListing]:
     return data.get("jobPostings") or []
 
 
+def _fetch_workday(slug: str, entry: dict) -> list[RawListing]:
+    """Fetch all open jobs from a Workday public job board, paginating to completion.
+
+    Workday endpoint: POST https://{slug}.wd{N}.myworkdayjobs.com/wday/cxs/{path}/jobs
+    Body: {"appliedFacets": {}, "limit": N, "offset": M, "searchText": ""}
+
+    The ``entry`` dict may contain ``workday_path`` (defaults to "{slug}/{slug}")
+    and ``workday_instance`` (defaults to 5). Inject ``_workday_host`` into each
+    returned raw dict so the normalizer can construct a full source URL.
+    """
+    instance = int(entry.get("workday_instance") or 5)
+    workday_path = (entry.get("workday_path") or f"{slug}/{slug}").strip("/")
+    host = f"{slug}.wd{instance}.myworkdayjobs.com"
+    url = f"https://{host}/wday/cxs/{workday_path}/jobs"
+
+    all_postings: list[RawListing] = []
+    offset = 0
+
+    with httpx.Client(timeout=_TIMEOUT) as client:
+        while offset < _WORKDAY_MAX_ITEMS:
+            resp = client.post(
+                url,
+                json={
+                    "appliedFacets": {},
+                    "limit": _WORKDAY_FETCH_LIMIT,
+                    "offset": offset,
+                    "searchText": "",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            batch = data.get("jobPostings") or []
+            total = int(data.get("total", 0))
+
+            for posting in batch:
+                posting["_workday_host"] = host
+
+            all_postings.extend(batch)
+            offset += len(batch)
+
+            if not batch or offset >= total:
+                break
+
+    return all_postings
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -131,6 +211,31 @@ def _parse_iso_date(raw: str | None) -> str | None:
     except (ValueError, AttributeError):
         m = re.match(r"^(\d{4}-\d{2}-\d{2})", raw)
         return m.group(1) if m else None
+
+
+def _workday_employment(raw_type: str | None) -> str | None:
+    """Map Workday timeType to canonical employment type."""
+    if not raw_type:
+        return None
+    return _WORKDAY_TIME_TYPE_MAP.get(raw_type.lower().strip())
+
+
+def _parse_workday_date(raw: str | None) -> str | None:
+    """Parse a Workday human-readable date string to YYYY-MM-DD.
+
+    Workday expresses post date as "Posted N Days Ago", "Posted 30+ Days Ago",
+    or "Posted Today". Returns None for any unrecognised format.
+    """
+    if not raw:
+        return None
+    lower = raw.lower()
+    if "today" in lower:
+        return date.today().isoformat()
+    m = re.search(r"(\d+)\+?\s*day", lower)
+    if m:
+        n = int(m.group(1))
+        return (date.today() - timedelta(days=n)).isoformat()
+    return None
 
 
 def _lever_employment(raw: RawListing) -> str | None:
@@ -294,6 +399,39 @@ def _normalize_ashby(raw: RawListing) -> JobListing:
     )
 
 
+def _normalize_workday(raw: RawListing) -> JobListing:
+    """Normalize a Workday job posting to a canonical JobListing.
+
+    Workday's public list API does not expose job descriptions; downstream
+    keyword filtering will only match on title and location for these listings.
+    """
+    company = (raw.get("_company_name") or raw.get("_ats_slug") or "").strip()
+    slug = raw.get("_ats_slug") or ""
+    title = (raw.get("title") or "").strip()
+    location_raw = (raw.get("locationsText") or "").strip()
+    posted_at = _parse_workday_date(raw.get("postedOn"))
+    employment = _workday_employment(raw.get("timeType"))
+    host = raw.get("_workday_host") or f"{slug}.wd5.myworkdayjobs.com"
+    external_path = (raw.get("externalPath") or "").strip()
+    source_url = f"https://{host}{external_path}" if external_path else f"https://{host}/"
+    source_id = str(raw.get("jobReqId") or raw.get("externalPath") or "")
+    source_name = f"{_ATS_SOURCE_PREFIX['workday']}:{slug}"
+    first_seen_at = raw.get("_run_date") or date.today().isoformat()
+
+    return _build_listing(
+        title=title,
+        company=company,
+        description_html="",  # Workday list API does not expose descriptions
+        location_raw=location_raw,
+        posted_at=posted_at,
+        employment=employment,
+        source_name=source_name,
+        source_url=source_url,
+        source_id=source_id,
+        first_seen_at=first_seen_at,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -302,12 +440,15 @@ _NORMALIZERS = {
     "greenhouse": _normalize_greenhouse,
     "lever": _normalize_lever,
     "ashby": _normalize_ashby,
+    "workday": _normalize_workday,
 }
 
 _FETCHERS = {
     "greenhouse": _fetch_greenhouse,
     "lever": _fetch_lever,
     "ashby": _fetch_ashby,
+    # workday uses _fetch_workday(slug, entry) — not in this dict because it
+    # requires the full entry dict, not just the slug.
 }
 
 
@@ -370,7 +511,10 @@ class AtsAdapter:
             slug = entry["slug"]
             company_name = (entry.get("name") or slug).strip()
             try:
-                raws = _FETCHERS[ats_type](slug)
+                if ats_type == "workday":
+                    raws = _fetch_workday(slug, entry)
+                else:
+                    raws = _FETCHERS[ats_type](slug)
                 for raw in raws:
                     raw["_ats_type"] = ats_type
                     raw["_ats_slug"] = slug
@@ -378,9 +522,7 @@ class AtsAdapter:
                     raw["_run_date"] = self.run_date
                 results.extend(raws)
             except Exception as exc:
-                self.company_failures.append(
-                    f"{company_name} ({ats_type}:{slug}): {exc}"
-                )
+                self.company_failures.append(f"{company_name} ({ats_type}:{slug}): {exc}")
 
         return results
 

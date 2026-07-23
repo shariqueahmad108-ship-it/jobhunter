@@ -22,11 +22,15 @@ from jobhunter.adapters.ats import (
     _fetch_ashby,
     _fetch_greenhouse,
     _fetch_lever,
+    _fetch_workday,
     _lever_employment,
     _normalize_ashby,
     _normalize_greenhouse,
     _normalize_lever,
+    _normalize_workday,
     _parse_iso_date,
+    _parse_workday_date,
+    _workday_employment,
 )
 from jobhunter.model import JobListing
 
@@ -77,6 +81,20 @@ _ASHBY_RAW: dict = {
     "_ats_slug": "elastic",
     "_company_name": "Elastic",
     "_run_date": "2026-07-23",
+}
+
+_WORKDAY_RAW: dict = {
+    "title": "Senior Software Engineer",
+    "externalPath": "/job/US-Remote/Senior-Software-Engineer_REQ-12345",
+    "locationsText": "Remote, United States",
+    "postedOn": "Posted 5 Days Ago",
+    "jobReqId": "REQ-12345",
+    "timeType": "Full time",
+    "_ats_type": "workday",
+    "_ats_slug": "redhat",
+    "_company_name": "Red Hat",
+    "_run_date": "2026-07-23",
+    "_workday_host": "redhat.wd5.myworkdayjobs.com",
 }
 
 
@@ -286,7 +304,7 @@ class TestAtsAdapterInit:
     def test_filters_unsupported_ats(self):
         watchlist = [
             {"ats": "greenhouse", "slug": "github"},
-            {"ats": "workday", "slug": "microsoft"},  # unsupported
+            {"ats": "bamboohr", "slug": "acme"},  # unsupported
         ]
         adapter = AtsAdapter(watchlist)
         assert len(adapter._watchlist) == 1
@@ -308,7 +326,7 @@ class TestAtsAdapterInit:
         assert adapter.query_independent is True
 
     def test_supported_ats_types(self):
-        assert SUPPORTED_ATS_TYPES == {"greenhouse", "lever", "ashby"}
+        assert SUPPORTED_ATS_TYPES == {"greenhouse", "lever", "ashby", "workday"}
 
 
 class TestAtsAdapterSearch:
@@ -368,10 +386,12 @@ class TestAtsAdapterSearch:
 
     def test_per_company_error_continues(self):
         """A failure for one company does not abort the remaining watchlist."""
-        adapter = AtsAdapter([
-            {"ats": "greenhouse", "slug": "github", "name": "GitHub"},
-            {"ats": "lever", "slug": "hashicorp", "name": "HashiCorp"},
-        ])
+        adapter = AtsAdapter(
+            [
+                {"ats": "greenhouse", "slug": "github", "name": "GitHub"},
+                {"ats": "lever", "slug": "hashicorp", "name": "HashiCorp"},
+            ]
+        )
         gh_raw = [{"id": 1, "title": "Community Manager"}]
 
         def fail_lever(slug):
@@ -390,6 +410,7 @@ class TestAtsAdapterSearch:
     def test_company_failures_reset_each_call(self):
         """company_failures is cleared at the start of each search() call."""
         adapter = AtsAdapter([{"ats": "lever", "slug": "bad-co", "name": "BadCo"}])
+
         def _raise(slug):
             raise RuntimeError("err")
 
@@ -403,16 +424,21 @@ class TestAtsAdapterSearch:
         assert adapter.company_failures == []
 
     def test_aggregates_multiple_companies(self):
-        adapter = AtsAdapter([
-            {"ats": "greenhouse", "slug": "github", "name": "GitHub"},
-            {"ats": "lever", "slug": "hashicorp", "name": "HashiCorp"},
-            {"ats": "ashby", "slug": "elastic", "name": "Elastic"},
-        ])
-        with patch.dict(_FETCHERS, {
-            "greenhouse": lambda slug: [{"id": 1}],
-            "lever": lambda slug: [{"id": 2}],
-            "ashby": lambda slug: [{"id": 3}],
-        }):
+        adapter = AtsAdapter(
+            [
+                {"ats": "greenhouse", "slug": "github", "name": "GitHub"},
+                {"ats": "lever", "slug": "hashicorp", "name": "HashiCorp"},
+                {"ats": "ashby", "slug": "elastic", "name": "Elastic"},
+            ]
+        )
+        with patch.dict(
+            _FETCHERS,
+            {
+                "greenhouse": lambda slug: [{"id": 1}],
+                "lever": lambda slug: [{"id": 2}],
+                "ashby": lambda slug: [{"id": 3}],
+            },
+        ):
             results = adapter.search("", "", 50)
         assert len(results) == 3
         ats_types = {r["_ats_type"] for r in results}
@@ -429,7 +455,7 @@ class TestAtsAdapterNormalize:
     def test_unknown_ats_type_raises(self):
         adapter = AtsAdapter([])
         with pytest.raises(ValueError, match="Unknown ATS type"):
-            adapter.normalize({"_ats_type": "workday"})
+            adapter.normalize({"_ats_type": "bamboohr"})
 
     def test_missing_ats_type_raises(self):
         adapter = AtsAdapter([])
@@ -633,3 +659,323 @@ class TestAtsPipelineIntegration:
             _make_profile(), [FakeAtsAdapter()], today=date(2026, 7, 23)
         )
         assert report.requests_made == 1
+
+
+# ---------------------------------------------------------------------------
+# Workday helpers
+# ---------------------------------------------------------------------------
+
+
+class TestWorkdayEmployment:
+    def test_full_time(self):
+        assert _workday_employment("Full time") == "full_time"
+
+    def test_full_time_hyphenated(self):
+        assert _workday_employment("Full-time") == "full_time"
+
+    def test_part_time(self):
+        assert _workday_employment("Part time") == "part_time"
+
+    def test_contract(self):
+        assert _workday_employment("Contract") == "contract"
+
+    def test_internship(self):
+        assert _workday_employment("Internship") == "internship"
+
+    def test_temp(self):
+        assert _workday_employment("Temporary") == "temp"
+
+    def test_unknown_returns_none(self):
+        assert _workday_employment("Seasonal") is None
+
+    def test_none_returns_none(self):
+        assert _workday_employment(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _workday_employment("") is None
+
+
+class TestParseWorkdayDate:
+    def test_days_ago(self):
+        import datetime as _dt
+
+        result = _parse_workday_date("Posted 5 Days Ago")
+        expected = (_dt.date.today() - _dt.timedelta(days=5)).isoformat()
+        assert result == expected
+
+    def test_thirty_plus_days(self):
+        import datetime as _dt
+
+        result = _parse_workday_date("Posted 30+ Days Ago")
+        expected = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+        assert result == expected
+
+    def test_posted_today(self):
+        import datetime as _dt
+
+        result = _parse_workday_date("Posted Today")
+        assert result == _dt.date.today().isoformat()
+
+    def test_none_returns_none(self):
+        assert _parse_workday_date(None) is None
+
+    def test_empty_returns_none(self):
+        assert _parse_workday_date("") is None
+
+    def test_unrecognised_returns_none(self):
+        assert _parse_workday_date("Unknown") is None
+
+    def test_case_insensitive(self):
+        import datetime as _dt
+
+        result = _parse_workday_date("posted 3 days ago")
+        expected = (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
+        assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# Workday normalize
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeWorkday:
+    def test_basic_fields(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.title == "Senior Software Engineer"
+        assert listing.company == "Red Hat"
+        assert listing.employment == "full_time"
+        assert listing.first_seen_at == "2026-07-23"
+        assert listing.salary is None
+
+    def test_source_name_includes_slug(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.sources[0].name == "ats_workday:redhat"
+
+    def test_source_url_constructed_from_host_and_path(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        url = listing.sources[0].url
+        assert "redhat.wd5.myworkdayjobs.com" in url
+        assert "/job/US-Remote/Senior-Software-Engineer_REQ-12345" in url
+
+    def test_source_id_is_job_req_id(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.sources[0].source_id == "REQ-12345"
+
+    def test_location_parsed(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.location.is_remote
+
+    def test_description_empty(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.description == ""
+
+    def test_id_derived(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.id != ""
+
+    def test_content_hash_derived(self):
+        listing = _normalize_workday(_WORKDAY_RAW)
+        assert listing.content_hash != ""
+
+    def test_missing_company_uses_slug(self):
+        raw = {**_WORKDAY_RAW, "_company_name": "", "_ats_slug": "atlassian"}
+        listing = _normalize_workday(raw)
+        assert listing.company == "atlassian"
+
+    def test_run_date_used_for_first_seen(self):
+        raw = {**_WORKDAY_RAW, "_run_date": "2026-01-10"}
+        listing = _normalize_workday(raw)
+        assert listing.first_seen_at == "2026-01-10"
+
+    def test_missing_external_path_gives_root_url(self):
+        raw = {**_WORKDAY_RAW, "externalPath": ""}
+        listing = _normalize_workday(raw)
+        assert listing.sources[0].url == "https://redhat.wd5.myworkdayjobs.com/"
+
+    def test_fallback_host_from_slug(self):
+        raw = {**_WORKDAY_RAW}
+        del raw["_workday_host"]
+        listing = _normalize_workday(raw)
+        assert "redhat.wd5.myworkdayjobs.com" in listing.sources[0].url
+
+
+# ---------------------------------------------------------------------------
+# Workday fetch (mocked HTTP)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchWorkday:
+    def _make_mock_client(self, postings, total=None):
+        if total is None:
+            total = len(postings)
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"jobPostings": postings, "total": total}
+        mock_resp.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.__enter__ = lambda s: mock_client
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post.return_value = mock_resp
+        return mock_client
+
+    def test_returns_job_postings(self):
+        postings = [{"title": "SWE", "jobReqId": "R-1"}]
+        mock_client = self._make_mock_client(postings)
+        entry = {"slug": "redhat", "workday_path": "RedHat/Jobs", "workday_instance": 5}
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            result = _fetch_workday("redhat", entry)
+        assert len(result) == 1
+        assert result[0]["title"] == "SWE"
+
+    def test_injects_workday_host(self):
+        postings = [{"title": "SWE"}]
+        mock_client = self._make_mock_client(postings)
+        entry = {"slug": "redhat", "workday_path": "RedHat/Jobs", "workday_instance": 5}
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            result = _fetch_workday("redhat", entry)
+        assert result[0]["_workday_host"] == "redhat.wd5.myworkdayjobs.com"
+
+    def test_uses_correct_url(self):
+        mock_client = self._make_mock_client([])
+        entry = {
+            "slug": "atlassian",
+            "workday_path": "AtlassianExternalCareerSite/jobs",
+            "workday_instance": 5,
+        }
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            _fetch_workday("atlassian", entry)
+        call_url = mock_client.post.call_args[0][0]
+        assert "atlassian.wd5.myworkdayjobs.com" in call_url
+        assert "AtlassianExternalCareerSite/jobs" in call_url
+
+    def test_default_instance_is_5(self):
+        mock_client = self._make_mock_client([])
+        entry = {"slug": "redhat"}  # no workday_instance
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            _fetch_workday("redhat", entry)
+        call_url = mock_client.post.call_args[0][0]
+        assert "redhat.wd5.myworkdayjobs.com" in call_url
+
+    def test_default_path_from_slug(self):
+        mock_client = self._make_mock_client([])
+        entry = {"slug": "company"}  # no workday_path
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            _fetch_workday("company", entry)
+        call_url = mock_client.post.call_args[0][0]
+        assert "/wday/cxs/company/company/jobs" in call_url
+
+    def test_empty_board_returns_empty(self):
+        mock_client = self._make_mock_client([])
+        entry = {"slug": "redhat", "workday_path": "RedHat/Jobs"}
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            result = _fetch_workday("redhat", entry)
+        assert result == []
+
+    def test_paginates_until_total_reached(self):
+        resp1 = MagicMock()
+        resp1.json.return_value = {
+            "jobPostings": [{"title": "Job 1"}, {"title": "Job 2"}],
+            "total": 3,
+        }
+        resp1.raise_for_status.return_value = None
+
+        resp2 = MagicMock()
+        resp2.json.return_value = {
+            "jobPostings": [{"title": "Job 3"}],
+            "total": 3,
+        }
+        resp2.raise_for_status.return_value = None
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = lambda s: mock_client
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post.side_effect = [resp1, resp2]
+
+        entry = {"slug": "redhat", "workday_path": "RedHat/Jobs"}
+        with patch("jobhunter.adapters.ats.httpx.Client", return_value=mock_client):
+            result = _fetch_workday("redhat", entry)
+        assert len(result) == 3
+        assert mock_client.post.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# AtsAdapter — Workday via search()
+# ---------------------------------------------------------------------------
+
+
+class TestAtsAdapterSearchWorkday:
+    def test_workday_entry_fetched_and_metadata_injected(self):
+        adapter = AtsAdapter(
+            [
+                {
+                    "ats": "workday",
+                    "slug": "redhat",
+                    "name": "Red Hat",
+                    "workday_path": "RedHat/Jobs",
+                },
+            ]
+        )
+        fake_raw = [{"title": "SRE", "jobReqId": "R-99"}]
+
+        with patch("jobhunter.adapters.ats._fetch_workday", return_value=fake_raw) as mock_fw:
+            results = adapter.search("", "", 50)
+
+        assert mock_fw.called
+        assert len(results) == 1
+        assert results[0]["_ats_type"] == "workday"
+        assert results[0]["_ats_slug"] == "redhat"
+        assert results[0]["_company_name"] == "Red Hat"
+
+    def test_workday_in_mixed_watchlist(self):
+        adapter = AtsAdapter(
+            [
+                {"ats": "greenhouse", "slug": "github", "name": "GitHub"},
+                {
+                    "ats": "workday",
+                    "slug": "redhat",
+                    "name": "Red Hat",
+                    "workday_path": "RedHat/Jobs",
+                },
+            ]
+        )
+        gh_raw = [{"id": 1}]
+        wd_raw = [{"title": "SWE"}]
+
+        with (
+            patch.dict(_FETCHERS, {"greenhouse": lambda slug: gh_raw}),
+            patch("jobhunter.adapters.ats._fetch_workday", return_value=wd_raw),
+        ):
+            results = adapter.search("", "", 50)
+
+        assert len(results) == 2
+        ats_types = {r["_ats_type"] for r in results}
+        assert ats_types == {"greenhouse", "workday"}
+
+    def test_workday_failure_recorded(self):
+        adapter = AtsAdapter(
+            [
+                {
+                    "ats": "workday",
+                    "slug": "redhat",
+                    "name": "Red Hat",
+                    "workday_path": "RedHat/Jobs",
+                },
+            ]
+        )
+
+        def _raise(slug, entry):
+            raise RuntimeError("connection refused")
+
+        with patch("jobhunter.adapters.ats._fetch_workday", side_effect=_raise):
+            results = adapter.search("", "", 50)
+
+        assert results == []
+        assert len(adapter.company_failures) == 1
+        assert "Red Hat" in adapter.company_failures[0]
+        assert "connection refused" in adapter.company_failures[0]
+
+    def test_workday_normalize_dispatches(self):
+        adapter = AtsAdapter([])
+        listing = adapter.normalize(_WORKDAY_RAW)
+        assert isinstance(listing, JobListing)
+        assert listing.company == "Red Hat"
+        assert listing.sources[0].name == "ats_workday:redhat"
