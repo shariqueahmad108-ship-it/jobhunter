@@ -72,6 +72,16 @@ weights:                            # relative importance; 0 disables a componen
   company_signal: 10
   recency: 5
 
+sources:                            # unified source activation — a source absent
+  adzuna: { enabled: true }         #   or enabled=false is never fetched
+  # ats_watchlist:                  # company boards (greenhouse|lever|ashby|workday)
+  #   - { ats: "greenhouse", slug: "gitlab", name: "GitLab" }
+  # feeds:                          # any public RSS/Atom job feed
+  #   - { name: "myfeed", url: "https://example.com/jobs.rss" }
+  # remotive: { enabled: true, categories: ["devrel"] }
+  # remoteok: { enabled: true }
+  # careerjet: { enabled: true }   # needs CAREERJET_AFFILIATE_ID env var
+
 search_mode: "active_employed"      # active_unemployed | active_employed | passive_employed
                                     # posture preset (see specs/02) — explicit output/
                                     # hard_requirements values below override its defaults

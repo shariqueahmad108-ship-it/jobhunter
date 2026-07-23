@@ -37,17 +37,32 @@ _DEFAULT_STATE = Path("state/state.yaml")
 
 
 def _build_adapters(profile: dict) -> list:
-    """Build the source adapters the PROFILE activates (first slice of plan item 6).
+    """Build the source adapters the PROFILE activates.
 
-    Adzuna: enabled when env credentials exist (as before).
-    ATS watchlist: enabled when queries.ats_watchlist is non-empty.
-    Warns to stderr for each unconfigured adapter; returns empty list when none available.
+    ALL activation lives in the unified ``sources:`` block (spec 03):
+      sources.adzuna         {enabled, country}     creds from env
+      sources.ats_watchlist  [{ats, slug, name}]    greenhouse|lever|ashby|workday
+      sources.feeds          [{name, url}]          RSS/Atom, no creds
+      sources.remotive       {enabled, categories}
+      sources.remoteok       {enabled}
+      sources.careerjet      {enabled}              cred from CAREERJET_AFFILIATE_ID
+
+    Legacy fallback: ``queries.ats_watchlist`` still activates the ATS adapter
+    when ``sources.ats_watchlist`` is absent (deprecated — move it to sources:).
+    A source that is enabled but missing its credential warns and is skipped;
+    a source absent or enabled=false is never constructed.
     """
     adapters = []
+    sources = profile.get("sources") or {}
 
+    # --- Adzuna -----------------------------------------------------------
     app_id = os.environ.get("ADZUNA_APP_ID", "")
     app_key = os.environ.get("ADZUNA_APP_KEY", "")
-    if app_id and app_key:
+    adzuna_cfg = sources.get("adzuna")
+    adzuna_enabled = adzuna_cfg.get("enabled", True) if adzuna_cfg is not None else True
+    if adzuna_cfg is not None and not adzuna_enabled:
+        pass  # explicitly opted out — silent
+    elif app_id and app_key:
         from jobhunter.adapters.adzuna import AdzunaAdapter
 
         adapters.append(AdzunaAdapter(app_id=app_id, app_key=app_key))
@@ -57,17 +72,54 @@ def _build_adapters(profile: dict) -> list:
             file=sys.stderr,
         )
 
-    watchlist = profile.get("queries", {}).get("ats_watchlist") or []
+    # --- ATS company watchlist (greenhouse/lever/ashby/workday) -----------
+    watchlist = sources.get("ats_watchlist")
+    if watchlist is None:
+        watchlist = profile.get("queries", {}).get("ats_watchlist") or []
+        if watchlist:
+            print(
+                "Note: queries.ats_watchlist is deprecated — move it to "
+                "sources.ats_watchlist.",
+                file=sys.stderr,
+            )
     if watchlist:
         from jobhunter.adapters.ats import AtsAdapter
 
         adapters.append(AtsAdapter(watchlist))
 
-    feeds = profile.get("queries", {}).get("feeds") or []
+    # --- RSS/Atom feeds ---------------------------------------------------
+    feeds = sources.get("feeds") or []
     if feeds:
         from jobhunter.adapters.rss import FeedAdapter
 
         adapters.append(FeedAdapter(feeds))
+
+    # --- Remotive ---------------------------------------------------------
+    remotive_cfg = sources.get("remotive") or {}
+    if remotive_cfg.get("enabled"):
+        from jobhunter.adapters.remotive import RemotiveAdapter
+
+        adapters.append(RemotiveAdapter(categories=remotive_cfg.get("categories") or []))
+
+    # --- RemoteOK ---------------------------------------------------------
+    if (sources.get("remoteok") or {}).get("enabled"):
+        from jobhunter.adapters.remoteok import RemoteOKAdapter
+
+        adapters.append(RemoteOKAdapter())
+
+    # --- Careerjet --------------------------------------------------------
+    if (sources.get("careerjet") or {}).get("enabled"):
+        careerjet_id = os.environ.get("CAREERJET_AFFILIATE_ID", "")
+        if careerjet_id:
+            from jobhunter.adapters.careerjet import CareerjetAdapter
+
+            adapters.append(CareerjetAdapter(affiliate_id=careerjet_id))
+        else:
+            print(
+                "Warning: sources.careerjet enabled but CAREERJET_AFFILIATE_ID "
+                "not set — Careerjet adapter skipped.",
+                file=sys.stderr,
+            )
 
     return adapters
 

@@ -23,7 +23,7 @@ _KEYWORD_SCOPES = {"title", "requirements"}
 _OUTPUT_FORMATS = {"markdown", "html", "both"}
 _DATA_FORMATS = {"json", "csv", "both"}
 _TRACKS = {"ic", "management"}
-_SUPPORTED_ATS_TYPES = {"greenhouse", "lever", "ashby"}
+_SUPPORTED_ATS_TYPES = {"greenhouse", "lever", "ashby", "workday"}
 
 _TOP_LEVEL_KEYS = {
     "identity",
