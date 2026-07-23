@@ -203,6 +203,47 @@ _COUNTRY_NAMES: dict[str, Optional[str]] = {
     "mexico": "MX",
     "japan": "JP",
     "south africa": "ZA",
+    "israel": "IL",
+    "turkey": "TR",
+    "republic of ireland": "IE",
+    "saudi arabia": "SA",
+    "ksa": "SA",
+    "uae": "AE",
+    "united arab emirates": "AE",
+    "greece": "GR",
+    "malta": "MT",
+    "czech republic": "CZ",
+    "czechia": "CZ",
+    "hungary": "HU",
+    "romania": "RO",
+    "ukraine": "UA",
+    "south korea": "KR",
+    "korea": "KR",
+    "taiwan": "TW",
+    "hong kong": "HK",
+    "china": "CN",
+    "philippines": "PH",
+    "indonesia": "ID",
+    "vietnam": "VN",
+    "thailand": "TH",
+    "malaysia": "MY",
+    "argentina": "AR",
+    "chile": "CL",
+    "colombia": "CO",
+    "nigeria": "NG",
+    "kenya": "KE",
+    "egypt": "EG",
+    # Region names: mapped to synthetic region codes so eligibility filters can
+    # act on them (they are NOT unknown — "North America" clearly excludes AU).
+    # APAC deliberately maps to None: it may include Australia (kept + flagged).
+    "americas": "AMERICAS",
+    "north america": "AMERICAS",
+    "latam": "LATAM",
+    "south america": "LATAM",
+    "emea": "EMEA",
+    "europe": "EMEA",
+    "apac": None,
+    "asia pacific": None,
     "worldwide": None,
     "global": None,
     "anywhere": None,
@@ -307,13 +348,15 @@ def parse_location(raw: str) -> Location:
     if not geo:
         return Location(raw=raw, is_remote=is_remote)
 
-    # Normalize dashes and pipes to commas for uniform comma-splitting
-    geo = re.sub(r"[—–|]+", ",", geo)
+    # Normalize dashes, pipes, semicolons and slashes to commas for splitting —
+    # multi-country restrictions ("Canada; US") are lists, not one unknown place
+    geo = re.sub(r"[—–|;/]+", ",", geo)
     segments = [s.strip() for s in geo.split(",") if s.strip()]
 
     city: Optional[str] = None
     region: Optional[str] = None
     country: Optional[str] = None
+    countries_seen: list[str] = []
     remaining: list[str] = []
 
     for seg in segments:
@@ -326,11 +369,13 @@ def parse_location(raw: str) -> Location:
         if lower in _COUNTRY_NAMES:
             c = _COUNTRY_NAMES[lower]
             if c is not None:
+                countries_seen.append(c)
                 country = c
             continue
 
         # Bare 2-letter ISO country code
         if len(upper) == 2 and upper.isalpha() and upper in _ISO2_CODES:
+            countries_seen.append(upper)
             country = upper
             continue
 
@@ -364,6 +409,11 @@ def parse_location(raw: str) -> Location:
                 city = city_seg
         else:
             city = city_seg
+
+    # Multi-country restriction lists: prefer AU when present (an AU-eligible
+    # posting must read as AU-eligible), else the first country listed.
+    if countries_seen:
+        country = "AU" if "AU" in countries_seen else countries_seen[0]
 
     return Location(
         raw=raw,

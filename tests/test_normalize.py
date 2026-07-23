@@ -623,3 +623,38 @@ def test_run_null_unknown_data_not_dropped():
     assert len(result) == 1
     assert result[0].salary is None
     assert result[0].seniority is None
+
+
+# ---------------------------------------------------------------------------
+# Country parsing: multi-country lists, region names, previously-unknown names
+# ---------------------------------------------------------------------------
+
+
+def test_parse_location_semicolon_country_list():
+    loc = parse_location("Remote (Canada; US)")
+    assert loc.is_remote is True
+    assert loc.country in ("CA", "US")  # a restriction, not an unknown
+
+
+def test_parse_location_country_list_prefers_au():
+    loc = parse_location("Remote - Australia; New Zealand")
+    assert loc.country == "AU"
+
+
+def test_parse_location_republic_of_ireland():
+    assert parse_location("Republic of Ireland").country == "IE"
+
+
+def test_parse_location_israel_turkey():
+    assert parse_location("Israel").country == "IL"
+    assert parse_location("Turkey").country == "TR"
+
+
+def test_parse_location_region_names_are_restrictions():
+    assert parse_location("Remote (North America)").country == "AMERICAS"
+    assert parse_location("Remote EMEA").country == "EMEA"
+
+
+def test_parse_location_apac_stays_unknown():
+    """APAC may include Australia — kept as unknown (flagged), never dropped."""
+    assert parse_location("Remote APAC").country is None
