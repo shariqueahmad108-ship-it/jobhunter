@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jobhunter.adapters.adzuna import (
+    _MAX_RETRY_WAIT,
     AdzunaAdapter,
     _detect_remote,
     _parse_employment,
@@ -189,14 +190,15 @@ def test_detect_remote_description_negation_rejected():
 
 def test_detect_remote_full_description_bare_mention_not_enough():
     """In a FULL description, a bare 'remote' is too weak a signal."""
-    long_desc = ("Our team spans several remote offices. " + "We build software. " * 40)
+    long_desc = "Our team spans several remote offices. " + "We build software. " * 40
     assert len(long_desc) >= 500
     assert _detect_remote("Engineer", long_desc, "Sydney") is False
 
 
 def test_detect_remote_truncated_snippet_bare_mention_counts():
     """In a TRUNCATED snippet (Adzuna), a bare 'remote' counts — recall over precision."""
-    assert _detect_remote("Engineer", "This role can be worked remote from anywhere in AU...", "Melbourne") is True
+    desc = "This role can be worked remote from anywhere in AU..."
+    assert _detect_remote("Engineer", desc, "Melbourne") is True
 
 
 def test_detect_remote_truncated_snippet_hybrid_vetoes():
@@ -204,7 +206,9 @@ def test_detect_remote_truncated_snippet_hybrid_vetoes():
 
 
 def test_detect_remote_truncated_snippet_negation_vetoes():
-    assert _detect_remote("Engineer", "No remote work available for this role.", "Melbourne") is False
+    assert (
+        _detect_remote("Engineer", "No remote work available for this role.", "Melbourne") is False
+    )
 
 
 def test_detect_remote_description_positive_phrases():
@@ -329,6 +333,7 @@ def test_normalize_injected_run_date_used_for_first_seen(adapter):
     adapter.run_date = "2026-01-15"
     listing = adapter.normalize(_SENIOR_LISTING)
     assert listing.first_seen_at == "2026-01-15"
+
 
 def test_normalize_description_html_stripped(adapter):
     listing = adapter.normalize(_SENIOR_LISTING)
@@ -642,3 +647,233 @@ def test_adapter_missing_credentials_raises():
     with patch.dict(os.environ, clean_env, clear=True):
         with pytest.raises(KeyError):
             AdzunaAdapter()
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit backoff tests
+# ---------------------------------------------------------------------------
+
+
+def _make_adapter_no_delay() -> AdzunaAdapter:
+    """Adapter with no page delay (keeps tests fast)."""
+    env = {"ADZUNA_APP_ID": "test_id", "ADZUNA_APP_KEY": "test_key"}
+    with patch.dict(os.environ, env):
+        return AdzunaAdapter(country="au", page_delay=0.0)
+
+
+def test_page_delay_default_is_set():
+    from jobhunter.adapters.adzuna import _DEFAULT_PAGE_DELAY
+
+    a = _make_adapter()
+    assert a.page_delay == _DEFAULT_PAGE_DELAY
+
+
+def test_page_delay_configurable():
+    env = {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}
+    with patch.dict(os.environ, env):
+        a = AdzunaAdapter(page_delay=1.5)
+    assert a.page_delay == 1.5
+
+
+def test_page_delay_inserted_between_pages():
+    """time.sleep is called with page_delay between page 1 and page 2."""
+    page1 = {"count": 3, "results": [_SENIOR_LISTING, _JUNIOR_LISTING]}
+    page2 = {"count": 3, "results": [_REMOTE_CONTRACT_LISTING]}
+
+    responses = [_mock_response(page1), _mock_response(page2)]
+    with (
+        patch("jobhunter.adapters.adzuna._PAGE_SIZE", 2),
+        patch("jobhunter.adapters.adzuna.time.sleep") as mock_sleep,
+        patch("httpx.Client") as mock_client_cls,
+        patch.dict(os.environ, {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}),
+    ):
+        a = AdzunaAdapter(country="au", page_delay=0.25)
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.side_effect = responses
+        mock_client_cls.return_value = mock_client
+
+        a.search("python", "Australia", max_results=10)
+
+    mock_sleep.assert_called_once_with(0.25)
+
+
+def test_no_delay_on_first_page():
+    """time.sleep is NOT called for the first page (no delay on page 1)."""
+    mock_resp = _mock_response(_ADZUNA_SEARCH_RESPONSE)
+    with (
+        patch("jobhunter.adapters.adzuna.time.sleep") as mock_sleep,
+        patch("httpx.Client") as mock_client_cls,
+    ):
+        adapter_local = _make_adapter_no_delay()
+        # Override page_delay after construction so it's non-zero
+        adapter_local.page_delay = 0.5
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = mock_resp
+        mock_client_cls.return_value = mock_client
+
+        adapter_local.search("python", "Australia", max_results=10)
+
+    # Only 1 page fetched (response < PAGE_SIZE) → no inter-page delay
+    mock_sleep.assert_not_called()
+
+
+def test_429_retry_after_header_honoured():
+    """On a 429 with Retry-After, sleep that many seconds and retry."""
+    import httpx as _httpx
+
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.headers = {"Retry-After": "5"}
+    rate_limited.raise_for_status.side_effect = _httpx.HTTPStatusError(
+        "429", request=MagicMock(), response=MagicMock()
+    )
+
+    success = _mock_response(_ADZUNA_SEARCH_RESPONSE)
+    success.status_code = 200
+
+    with (
+        patch("jobhunter.adapters.adzuna.time.sleep") as mock_sleep,
+        patch("httpx.Client") as mock_client_cls,
+    ):
+        a = _make_adapter_no_delay()
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.side_effect = [rate_limited, success]
+        mock_client_cls.return_value = mock_client
+
+        results = a.search("python", "Australia", max_results=10)
+
+    assert len(results) == 2
+    mock_sleep.assert_called_once_with(5.0)
+
+
+def test_429_retry_after_capped_at_max():
+    """Retry-After values larger than _MAX_RETRY_WAIT are capped."""
+    import httpx as _httpx
+
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.headers = {"Retry-After": "9999"}
+    rate_limited.raise_for_status.side_effect = _httpx.HTTPStatusError(
+        "429", request=MagicMock(), response=MagicMock()
+    )
+
+    success = _mock_response(_ADZUNA_SEARCH_RESPONSE)
+    success.status_code = 200
+
+    with (
+        patch("jobhunter.adapters.adzuna.time.sleep") as mock_sleep,
+        patch("httpx.Client") as mock_client_cls,
+    ):
+        a = _make_adapter_no_delay()
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.side_effect = [rate_limited, success]
+        mock_client_cls.return_value = mock_client
+
+        a.search("python", "Australia", max_results=10)
+
+    mock_sleep.assert_called_once_with(_MAX_RETRY_WAIT)
+
+
+def test_429_without_retry_after_uses_max_wait():
+    """A 429 with no Retry-After header sleeps for _MAX_RETRY_WAIT."""
+    import httpx as _httpx
+
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.headers = {}
+    rate_limited.raise_for_status.side_effect = _httpx.HTTPStatusError(
+        "429", request=MagicMock(), response=MagicMock()
+    )
+
+    success = _mock_response(_ADZUNA_SEARCH_RESPONSE)
+    success.status_code = 200
+
+    with (
+        patch("jobhunter.adapters.adzuna.time.sleep") as mock_sleep,
+        patch("httpx.Client") as mock_client_cls,
+    ):
+        a = _make_adapter_no_delay()
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.side_effect = [rate_limited, success]
+        mock_client_cls.return_value = mock_client
+
+        a.search("python", "Australia", max_results=10)
+
+    mock_sleep.assert_called_once_with(_MAX_RETRY_WAIT)
+
+
+def test_429_exhausted_retries_raises():
+    """When all retries are exhausted, HTTPStatusError propagates."""
+    import httpx as _httpx
+
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.headers = {"Retry-After": "0"}
+    rate_limited.raise_for_status.side_effect = _httpx.HTTPStatusError(
+        "429 Too Many Requests", request=MagicMock(), response=MagicMock()
+    )
+
+    with (
+        patch("jobhunter.adapters.adzuna.time.sleep"),
+        patch("httpx.Client") as mock_client_cls,
+    ):
+        a = _make_adapter_no_delay()
+        a.max_retries = 2
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        # Return rate_limited for every attempt (max_retries + 1 = 3 calls)
+        mock_client.get.return_value = rate_limited
+        mock_client_cls.return_value = mock_client
+
+        with pytest.raises(_httpx.HTTPStatusError):
+            a.search("python", "Australia", max_results=10)
+
+    # Expect max_retries + 1 requests_made (3 total: 2 retries + 1 final raise)
+    assert a.requests_made == 3
+
+
+def test_429_requests_made_counts_retried_attempts():
+    """requests_made counts every HTTP attempt, including retried ones."""
+    import httpx as _httpx
+
+    rate_limited = MagicMock()
+    rate_limited.status_code = 429
+    rate_limited.headers = {"Retry-After": "0"}
+    rate_limited.raise_for_status.side_effect = _httpx.HTTPStatusError(
+        "429", request=MagicMock(), response=MagicMock()
+    )
+    success = _mock_response(_ADZUNA_SEARCH_RESPONSE)
+    success.status_code = 200
+
+    with (
+        patch("jobhunter.adapters.adzuna.time.sleep"),
+        patch("httpx.Client") as mock_client_cls,
+    ):
+        a = _make_adapter_no_delay()
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.side_effect = [rate_limited, success]
+        mock_client_cls.return_value = mock_client
+
+        a.search("python", "Australia", max_results=10)
+
+    assert a.requests_made == 2  # 1 retried 429 + 1 success
+
+
+def test_max_retries_configurable():
+    env = {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}
+    with patch.dict(os.environ, env):
+        a = AdzunaAdapter(max_retries=5)
+    assert a.max_retries == 5
