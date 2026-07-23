@@ -106,11 +106,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     prev_for_render = prev_results if show_prev else None
 
-    # Determine output directory alongside the state file.
-    if hasattr(args, "output_dir"):
+    # Determine output directory: explicit --output-dir wins; default is a
+    # peer directory named "digests" next to the state directory.
+    if args.output_dir is not None:
         digest_dir = Path(args.output_dir)
     else:
-        digest_dir = state_path.parent.parent / "digests"
+        digest_dir = state_path.parent.with_name("digests")
     digest_dir.mkdir(parents=True, exist_ok=True)
     # Filename stem: date, plus the profile name for non-default profiles so
     # same-day runs of different profiles never overwrite each other.
@@ -244,6 +245,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(_DEFAULT_STATE),
         metavar="PATH",
         help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
+    run_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        dest="output_dir",
+        help="Directory for digest and data-file output (default: digests/ peer to state dir)",
     )
     run_p.set_defaults(func=_cmd_run)
 
