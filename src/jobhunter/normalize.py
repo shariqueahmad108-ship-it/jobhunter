@@ -239,7 +239,6 @@ _COUNTRY_NAMES: dict[str, Optional[str]] = {
     "bengaluru": "IN",
     "pune": "IN",
     "hyderabad": "IN",
-    "singapore": "SG",
     "london": "GB",
     "dublin": "IE",
     "toronto": "CA",
@@ -271,6 +270,20 @@ _COUNTRY_NAMES: dict[str, Optional[str]] = {
 _ISO2_CODES: frozenset[str] = frozenset(
     code for code in _COUNTRY_NAMES.values() if code is not None
 )
+
+# Hub-city names: when one of these appears alongside an explicit country
+# segment (e.g. "London, UK") it should be extracted as the *city*, not
+# collapsed into a country code. When it appears alone (e.g. "Remote
+# (London)"), the country is derived via _COUNTRY_NAMES after city extraction.
+_HUB_CITY_NAMES: frozenset[str] = frozenset({
+    "bangalore", "bengaluru", "pune", "hyderabad",
+    "singapore",
+    "london", "dublin",
+    "toronto", "vancouver",
+    "austin", "denver",
+    "amsterdam", "berlin", "stockholm",
+    "tel aviv", "dubai",
+})
 
 # US state / territory 2-letter abbreviations
 _US_STATES: frozenset[str] = frozenset(
@@ -384,6 +397,12 @@ def parse_location(raw: str) -> Location:
         lower = cleaned.lower()
         upper = cleaned.upper()
 
+        # Hub cities: treated as city candidates so "London, UK" → city="London"
+        # rather than city=None. Country derivation happens after city extraction.
+        if lower in _HUB_CITY_NAMES:
+            remaining.append(cleaned)
+            continue
+
         if lower in _COUNTRY_NAMES:
             c = _COUNTRY_NAMES[lower]
             if c is not None:
@@ -432,6 +451,13 @@ def parse_location(raw: str) -> Location:
     # posting must read as AU-eligible), else the first country listed.
     if countries_seen:
         country = "AU" if "AU" in countries_seen else countries_seen[0]
+
+    # Hub-city fallback: when a hub-city name was the only geographic segment
+    # (e.g. "Remote (London)"), derive its country from the hub-city mapping.
+    if city and country is None and city.lower() in _HUB_CITY_NAMES:
+        hub_country = _COUNTRY_NAMES.get(city.lower())
+        if hub_country is not None:
+            country = hub_country
 
     return Location(
         raw=raw,

@@ -719,7 +719,7 @@ def test_ats_watchlist_name_is_optional(tmp_path: Path) -> None:
 
 def test_ats_watchlist_unsupported_ats_rejected(tmp_path: Path) -> None:
     data = _minimal()
-    data["queries"]["ats_watchlist"] = [{"ats": "workday", "slug": "microsoft"}]
+    data["queries"]["ats_watchlist"] = [{"ats": "sapsuccessfactors", "slug": "microsoft"}]
     p = _write(tmp_path, data)
     with pytest.raises(ProfileError, match="ats_watchlist"):
         load_profile(p)
@@ -897,7 +897,7 @@ def test_sources_ats_watchlist_valid(tmp_path: Path) -> None:
 
 def test_sources_ats_watchlist_unsupported_ats_rejected(tmp_path: Path) -> None:
     data = _minimal()
-    data["sources"] = {"ats_watchlist": [{"ats": "workday", "slug": "red-hat"}]}
+    data["sources"] = {"ats_watchlist": [{"ats": "sapsuccessfactors", "slug": "red-hat"}]}
     with pytest.raises(ProfileError, match="ats_watchlist"):
         load_profile(_write(tmp_path, data))
 
@@ -980,3 +980,79 @@ def test_sources_unknown_key_rejected(tmp_path: Path) -> None:
     data["sources"] = {"linkedin": {"enabled": True}}
     with pytest.raises(ProfileError, match="Unknown key"):
         load_profile(_write(tmp_path, data))
+
+
+# ---------------------------------------------------------------------------
+# Workday entries in sources.ats_watchlist (karynne-source-config)
+# ---------------------------------------------------------------------------
+
+
+def test_sources_ats_watchlist_workday_minimal(tmp_path: Path) -> None:
+    """Workday entry with only ats+slug is valid."""
+    data = _minimal()
+    data["sources"] = {"ats_watchlist": [{"ats": "workday", "slug": "redhat"}]}
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["ats_watchlist"][0]["slug"] == "redhat"
+
+
+def test_sources_ats_watchlist_workday_with_path_and_instance(tmp_path: Path) -> None:
+    """Workday entry with optional workday_path and workday_instance is valid."""
+    data = _minimal()
+    data["sources"] = {
+        "ats_watchlist": [
+            {
+                "ats": "workday",
+                "slug": "redhat",
+                "name": "Red Hat",
+                "workday_path": "RedHat/jobs",
+                "workday_instance": 5,
+            }
+        ]
+    }
+    r = load_profile(_write(tmp_path, data))
+    entry = r["sources"]["ats_watchlist"][0]
+    assert entry["workday_path"] == "RedHat/jobs"
+    assert entry["workday_instance"] == 5
+
+
+def test_sources_ats_watchlist_workday_instance_not_int_rejected(tmp_path: Path) -> None:
+    """workday_instance must be an integer."""
+    data = _minimal()
+    data["sources"] = {
+        "ats_watchlist": [{"ats": "workday", "slug": "redhat", "workday_instance": "five"}]
+    }
+    with pytest.raises(ProfileError, match="workday_instance"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_queries_ats_watchlist_workday_with_path(tmp_path: Path) -> None:
+    """workday_path is also accepted in queries.ats_watchlist (deprecated path)."""
+    data = _minimal()
+    data["queries"]["ats_watchlist"] = [
+        {"ats": "workday", "slug": "atlassian", "workday_path": "Atlassian/jobs"}
+    ]
+    r = load_profile(_write(tmp_path, data))
+    assert r["queries"]["ats_watchlist"][0]["workday_path"] == "Atlassian/jobs"
+
+
+# ---------------------------------------------------------------------------
+# Live profile smoke tests (karynne-source-config)
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).parent.parent
+
+
+def test_karynne_profile_loads() -> None:
+    """profile-karynne.yaml loads without ProfileError when present on disk."""
+    p = _REPO_ROOT / "profile-karynne.yaml"
+    if not p.exists():
+        pytest.skip("profile-karynne.yaml not present (git-ignored; copy from example)")
+    load_profile(p)
+
+
+def test_justin_profile_loads() -> None:
+    """profile-justin.yaml loads without ProfileError when present on disk."""
+    p = _REPO_ROOT / "profile-justin.yaml"
+    if not p.exists():
+        pytest.skip("profile-justin.yaml not present (git-ignored; copy from example)")
+    load_profile(p)
