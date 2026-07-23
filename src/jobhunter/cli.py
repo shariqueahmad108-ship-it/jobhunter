@@ -127,6 +127,20 @@ def _build_adapters(profile: dict) -> list:
                 file=sys.stderr,
             )
 
+    # --- Jooble -----------------------------------------------------------
+    if (sources.get("jooble") or {}).get("enabled"):
+        jooble_key = os.environ.get("JOOBLE_API_KEY", "")
+        if jooble_key:
+            from jobhunter.adapters.jooble import JoobleAdapter
+
+            adapters.append(JoobleAdapter(api_key=jooble_key))
+        else:
+            print(
+                "Warning: sources.jooble enabled but JOOBLE_API_KEY "
+                "not set — Jooble adapter skipped.",
+                file=sys.stderr,
+            )
+
     return adapters
 
 

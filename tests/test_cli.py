@@ -346,6 +346,45 @@ def test_sources_careerjet_without_credential_skipped(capsys):
     assert all(a.name != "careerjet" for a in adapters)
     captured = capsys.readouterr()
     assert "CAREERJET_AFFILIATE_ID" in captured.err
+
+
+def test_sources_jooble_with_credential_constructs_adapter():
+    """sources.jooble.enabled=True + JOOBLE_API_KEY => JoobleAdapter present."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"jooble": {"enabled": True}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY")}
+    env["JOOBLE_API_KEY"] = "test-jooble-key"
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert any(a.name == "jooble" for a in adapters)
+
+
+def test_sources_jooble_without_credential_skipped(capsys):
+    """sources.jooble.enabled=True but no JOOBLE_API_KEY => no adapter, warning printed."""
+    import os as _os
+    from unittest.mock import patch
+
+    from jobhunter.cli import _build_adapters
+
+    profile = {
+        "queries": {"ats_watchlist": []},
+        "sources": {"jooble": {"enabled": True}},
+    }
+    env = {k: v for k, v in _os.environ.items()
+           if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY")}
+    with patch.dict(_os.environ, env, clear=True):
+        adapters = _build_adapters(profile)
+    assert all(a.name != "jooble" for a in adapters)
+    captured = capsys.readouterr()
+    assert "JOOBLE_API_KEY" in captured.err
 # ---------------------------------------------------------------------------
 # fx-staleness-warning: fx_rates_age_days wired into _cmd_run
 # ---------------------------------------------------------------------------
