@@ -20,26 +20,18 @@ components), rank/threshold, seen-state + dismiss CLI, Markdown/HTML/JSON
 digests, search-mode presets (`active_unemployed` / `active_employed` /
 `passive_employed`).
 
-## Manual prerequisites (Justin's terminal — the loop and the remote session can't do these)
+## Manual prerequisites (Justin's terminal)
 
-The device bridge cannot delete files or branch refs, so these must run locally
-before the next build round:
+Branch cleanup and git-litter quarantine were completed remotely on 2026-07-23:
+all 13 work-item branches are deleted (only `main` exists) and temp objects are
+moved into `_to_delete/`. What remains needs local delete permissions:
 
 ```bash
 cd ~/JobHunter
-# every branch is now a merged ancestor of main,
-# so plain -d works for all of them
-git branch -d ats-feed-adapter joblisting-model project-scaffold profile-schema \
-  adzuna-adapter normalize-stage dedupe-stage hard-filter-stage \
-  phase1-cli-digest scoring-stage rank-threshold seen-state digest-html
-rm -rf _to_delete
-find .git -name 'tmp_obj_*' -delete
+rm -rf _to_delete           # quarantined locks/refs/temp objects (~1.7 MB)
 git gc --prune=now
-python3 -m pytest -q     # expect 522 passed on main
+python3 -m pytest -q        # expect 522 passed
 ```
-
-**The `ats-feed-adapter` branch deletion is REQUIRED before running the loop**
-— while it exists the loop treats that work item as in-progress and skips it.
 
 ## Work items (priority order)
 
