@@ -32,60 +32,55 @@ sources_used") — unit tests alone let an unreachable adapter pass.
 
 ## Work items (priority order)
 
-1. **`profile-driven-sources`** — finish the `sources:` profile block
-   (partially done: ATS watchlist activation is live via queries.ats_watchlist).
-   Move to the unified shape and migrate:
+Source expansion (former items 1–5) is BUILT on five branches (2026-07-23
+evening loop run: profile-driven-sources, rss-atom-adapter,
+remote-board-adapters, aggregator-adapter, workday-adapter) — reviewed, all
+sound individually, currently being merged. Parallel building exposed a
+config divergence that item 1 below resolves.
 
-   ```yaml
-   sources:
-     adzuna:        { enabled: true, country: "au" }
-     ats_watchlist: [ { ats: greenhouse, slug: gitlab, name: GitLab } ]
-     feeds:         [ { name: "iworkfornsw", url: "https://…" } ]
-     remotive:      { enabled: false, categories: ["devrel"] }
-     remoteok:      { enabled: false }
-     careerjet:     { enabled: false }
-   ```
+LESSON (encode in future planning): work items that share a config surface
+must be built SEQUENTIALLY or given an explicit contract up front — the five
+source branches, built in parallel, wired activation through three different
+config paths (`sources:` block vs `queries.*` vs env-only), and the sources
+branch shipped "not yet implemented" warnings for adapters its siblings were
+implementing at that moment.
 
-   Keep `queries.ats_watchlist` working with a deprecation note, or migrate
-   both live profiles in the same change. END-TO-END criterion: a run with a
-   source enabled lists it in `sources_used`; disabled sources are never
-   constructed.
-   Validation: `python3 -m pytest tests/test_profile.py tests/test_cli.py -q`.
+1. **`sources-reconciliation`** (IN PROGRESS — applied directly post-merge) —
+   unify all source activation under the `sources:` profile block:
+   - `_build_adapters(profile)` constructs feeds / remotive / remoteok /
+     careerjet from `sources.*` (replacing the "not yet implemented"
+     warnings); careerjet = `sources.careerjet.enabled` + env
+     `CAREERJET_AFFILIATE_ID` for the credential.
+   - Drop the sibling branches' `queries.feeds` / `queries.remotive` /
+     `queries.remoteok` activation paths (never released; no legacy burden).
+     `queries.ats_watchlist` keeps its deprecation fallback.
+   - Update the stale "feeds not yet implemented" warning test; migrate both
+     live profiles to `sources:`; example profile documents the full block.
+   - END-TO-END criterion: with a fixture profile enabling each source, every
+     enabled source appears in `sources_used`; disabled/unconfigured sources
+     are never constructed.
+   Validation: `python3 -m pytest -q` (full suite).
 
-2. **`rss-atom-adapter`** — one generic feed adapter over any RSS/Atom URL in
-   `sources.feeds` (per-feed name for the source tally). Query-independent
-   (reuse `query_independent = True`); parse title/link/pubDate/description,
-   strip HTML via shared normalize. Unlocks WeWorkRemotely category feeds +
-   fossjobs.net (Justin) and I Work for NSW (Karynne).
-   END-TO-END criterion: a profile with one feed configured shows it in
-   sources_used and ingests fixture-feed entries.
-   Validation: `python3 -m pytest tests/test_rss.py -q` (fixture feeds).
+2. **`karynne-source-config`** — populate Karynne's `sources:` block: the
+   I Work for NSW feed (verify the real feed URL from iworkfornsw.nsw.gov.au
+   before adding — do NOT guess), `careerjet` enabled once an affiliate id is
+   registered, plus any hospitality-sector employers found on standard ATS
+   boards (HelloFresh AU etc. — slugs from careers-page URLs). Justin's
+   profile: consider `remotive` (devrel category) + WeWorkRemotely and
+   fossjobs.net feeds (verify URLs), Workday watchlist entries for Red Hat /
+   Atlassian / HashiCorp (slugs from careers pages).
 
-3. **`remote-board-adapters`** — Remotive + RemoteOK public JSON APIs
-   (attribution per their terms). Both mark remoteness explicitly and often
-   carry salary; per-source region tag so "remote (US only)" is flaggable.
-   END-TO-END criterion as above.
-   Validation: `python3 -m pytest tests/test_remotive.py tests/test_remoteok.py -q`.
-
-4. **`aggregator-adapter`** — Careerjet and/or Jooble free search APIs
-   (keyword×location model — clone the Adzuna adapter shape). Broad AU
-   mainstream recall for volume fields (Karynne's hospitality). Dedupe
-   handles the expected Adzuna overlap.
-   Validation: `python3 -m pytest tests/test_careerjet.py -q`.
-
-5. **`workday-adapter`** — extend the ATS family with Workday's public
-   job-board JSON endpoints (adds Red Hat, Atlassian, HashiCorp to
-   watchlists). Same watchlist shape (`ats: workday, slug: …`). After item 1.
-   Validation: `python3 -m pytest tests/test_ats.py -q`.
-
-6. **`title-geo-restrictions`** (nice-to-have) — listings whose location is
+3. **`title-geo-restrictions`** (nice-to-have) — listings whose location is
    bare "Remote" but whose TITLE names a region ("… - EMEA", "Renewals
    Manager Germany") currently pass with the "remote scope unclear" flag.
    Deliberate (title geo-scanning is false-positive-prone), but revisit if
-   flagged noise grows: a conservative title scan for region tokens could
-   downgrade these to ineligible. Requires fixture cases both ways.
+   flagged noise grows. Requires fixture cases both ways.
+
+4. **`fx-staleness-warning`** (small) — scheduled runs warn when
+   `fx_rates.yaml` is older than ~90 days (mtime check, one stderr line +
+   digest header note).
 
 Explicitly out (documented): LinkedIn (no public API; ToS), direct Seek
 (partner-only; partial inventory via aggregators), private RTO careers pages
 (no standard feeds). Paid Google-Jobs SERP API remains the documented
-fallback if free coverage proves insufficient after items 2–4.
+fallback if free coverage proves insufficient once the new sources are live.
