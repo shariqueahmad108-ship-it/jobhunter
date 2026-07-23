@@ -158,14 +158,20 @@ def _score_location_fit(listing: JobListing, preferences: dict) -> tuple[float, 
 
     from jobhunter.normalize import _COUNTRY_NAMES  # country-name → ISO map
 
+    def _geo_word_matches(w: str) -> bool:
+        iso = (_COUNTRY_NAMES.get(w) or "").lower()
+        for field in parsed_fields:
+            if term_pattern(w).search(field):
+                return True
+            if iso and term_pattern(iso).search(field):
+                return True
+        return False
+
     for pref in preferred_locations:
         pref_lower = pref.lower()
         pref_words = set(re.split(r"[\s,]+", pref_lower)) - {""}
         geo_words = pref_words - {"remote"}
-        geo_match = any(
-            w in parsed_fields or (_COUNTRY_NAMES.get(w) or "").lower() in parsed_fields
-            for w in geo_words
-        )
+        geo_match = any(_geo_word_matches(w) for w in geo_words)
         if "remote" in pref_words:
             # "Remote" alone: any remote role. "Remote Australia": remote AND in AU.
             if loc.is_remote and (not geo_words or geo_match):

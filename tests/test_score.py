@@ -346,6 +346,20 @@ class TestLocationFit:
         loc = next(c for c in result.components if c.name == "location_fit")
         assert loc.sub == pytest.approx(0.75)
 
+    def test_region_qualified_city_matches_preference(self):
+        """Adzuna parses cities as 'Sydney Region' — 'Sydney' preference must match."""
+        profile = {
+            **BASE_PROFILE,
+            "preferences": {**BASE_PROFILE["preferences"], "preferred_locations": ["Sydney"]},
+        }
+        listing = _listing(
+            is_remote=False, city="Sydney Region", country="AU",
+            location_raw="Sydney Region, New South Wales, AU",
+        )
+        result = score(listing, profile, today=TODAY)
+        loc = next(c for c in result.components if c.name == "location_fit")
+        assert loc.sub == pytest.approx(1.0)
+
     def test_bare_remote_preference_matches_any_remote(self):
         profile = {
             **BASE_PROFILE,
