@@ -93,6 +93,15 @@ def _passes_location(listing: JobListing, hr: dict) -> tuple[bool, list[str]]:
     loc = listing.location
     flags: list[str] = []
 
+    # 0. Region-restricted remote: a listing that is remote but restricted to a
+    # parsed country outside remote_countries_allowed is not remote FOR THIS
+    # USER — its remoteness no longer helps it pass. Unknown country = kept
+    # (unknown-data policy): "Remote" with no country may be work-from-anywhere.
+    allowed_rc = hr.get("remote_countries_allowed")
+    effective_remote = loc.is_remote and (
+        allowed_rc is None or loc.country is None or loc.country in [c.upper() for c in allowed_rc]
+    )
+
     # 1. exclude_locations — drop even if labelled remote.
     excl_locs: list[str] = hr.get("exclude_locations", [])
     if excl_locs and _location_matches_any(loc, excl_locs):
@@ -101,8 +110,10 @@ def _passes_location(listing: JobListing, hr: dict) -> tuple[bool, list[str]]:
     # 2. remote_policy
     remote_policy: str = hr.get("remote_policy", "any")
     if remote_policy == "remote_only":
-        if loc.is_remote:
-            pass  # Passes — definitively remote.
+        if effective_remote:
+            pass  # Passes — definitively remote (and in an allowed remote country).
+        elif loc.is_remote:
+            return False, []  # Remote, but restricted to a disallowed country.
         elif _has_geographic_info(loc):
             return False, []  # Known non-remote location → drop.
         else:
@@ -113,8 +124,9 @@ def _passes_location(listing: JobListing, hr: dict) -> tuple[bool, list[str]]:
     # 3. locations_allowed (positive restriction, empty = anywhere).
     locs_allowed: list[str] = hr.get("locations_allowed", [])
     if locs_allowed:
-        # Remote listings are exempt from the allowlist for non-"any" policies.
-        exempt = loc.is_remote and remote_policy in ("remote_only", "hybrid_ok", "onsite_ok")
+        # Remote listings are exempt from the allowlist for non-"any" policies —
+        # but only when their remoteness counts for this user (region check above).
+        exempt = effective_remote and remote_policy in ("remote_only", "hybrid_ok", "onsite_ok")
         if not exempt:
             if not _location_matches_any(loc, locs_allowed):
                 if _has_geographic_info(loc):

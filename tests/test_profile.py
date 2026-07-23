@@ -773,3 +773,17 @@ def test_ats_watchlist_not_list_rejected(tmp_path: Path) -> None:
     p = _write(tmp_path, data)
     with pytest.raises(ProfileError):
         load_profile(p)
+
+
+def test_remote_countries_allowed_validated(tmp_path: Path) -> None:
+    data = _minimal()
+    data["hard_requirements"] = {**data["hard_requirements"], "remote_countries_allowed": ["AU"]}
+    prof = load_profile(_write(tmp_path, data))
+    assert prof["hard_requirements"]["remote_countries_allowed"] == ["AU"]
+
+
+def test_remote_countries_allowed_empty_rejected(tmp_path: Path) -> None:
+    data = _minimal()
+    data["hard_requirements"] = {**data["hard_requirements"], "remote_countries_allowed": []}
+    with pytest.raises(ProfileError, match="remote_countries_allowed"):
+        load_profile(_write(tmp_path, data))

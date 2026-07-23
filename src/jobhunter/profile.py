@@ -188,6 +188,7 @@ def _validate_hard_requirements(hr: dict) -> None:
         "exclude_employment",
         "exclude_keywords",
         "require_keywords",
+        "remote_countries_allowed",
         "max_age_days",
     }
     _unknown_keys(hr, allowed, "hard_requirements")
@@ -198,6 +199,15 @@ def _validate_hard_requirements(hr: dict) -> None:
             f"hard_requirements.remote_policy: must be one of {sorted(_REMOTE_POLICIES)}, "
             f"got {rp!r}"
         )
+
+    rc = hr.get("remote_countries_allowed")
+    if rc is not None:
+        _expect_list_of_strings(rc, "hard_requirements.remote_countries_allowed")
+        if not rc:
+            raise ProfileError(
+                "hard_requirements.remote_countries_allowed: must be null (= any) or a "
+                "non-empty list of ISO country codes"
+            )
 
     excl_locs = hr.get("exclude_locations", [])
     _expect_list_of_strings(excl_locs, "hard_requirements.exclude_locations")

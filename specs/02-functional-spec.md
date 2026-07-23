@@ -119,6 +119,11 @@ Configurable hard filters:
   1. **`exclude_locations`** is checked first: a listing whose parsed location matches any entry
      is dropped **even when the role is labelled remote** — this covers "remote, but must be
      Sydney-based" postings.
+  1b. **`remote_countries_allowed`** (optional, null = any): a remote listing
+     restricted to a parsed country outside this list loses its remoteness for
+     pass/fail purposes — "Remote (US)" is not remote for an Australia-bound
+     user. A remote listing with NO parsed country is kept (unknown-data
+     policy: it may be work-from-anywhere) with the "remote scope unclear" flag.
   2. **`remote_policy`** then applies:
      - `remote_only` — only `is_remote: true` listings pass.
      - `hybrid_ok` — remote, hybrid, or onsite listings pass **if** remote or in an allowed location.

@@ -780,3 +780,54 @@ def test_require_keywords_title_scope():
                        description="Mentions cookery only in the body.")
     result = run([listing], prof, today=TODAY)
     assert len(result.passed) == 0  # title scope ignores the description mention
+
+
+# ---------------------------------------------------------------------------
+# remote_countries_allowed: region-restricted remote
+# ---------------------------------------------------------------------------
+
+
+def _profile_with_rc(rc, remote_policy="hybrid_ok", locations_allowed=None):
+    prof = {k: (dict(v) if isinstance(v, dict) else v) for k, v in BASE_PROFILE.items()}
+    prof["hard_requirements"] = {
+        **BASE_PROFILE["hard_requirements"],
+        "remote_countries_allowed": rc,
+        "remote_policy": remote_policy,
+        "locations_allowed": locations_allowed or [],
+        "exclude_locations": [],
+    }
+    return prof
+
+
+def test_remote_wrong_country_dropped():
+    """'Remote (US)' is not remote for an AU-bound user."""
+    listing = _listing(id="us", is_remote=True, city=None, country="US", location_raw="Remote (US)")
+    result = run([listing], _profile_with_rc(["AU"]), today=TODAY)
+    assert len(result.passed) == 0
+    assert result.tally.by_location == 1
+
+
+def test_remote_allowed_country_passes():
+    listing = _listing(id="au", is_remote=True, city=None, country="AU", location_raw="Remote AU")
+    result = run([listing], _profile_with_rc(["AU"]), today=TODAY)
+    assert len(result.passed) == 1
+
+
+def test_remote_unknown_country_kept():
+    """Bare 'Remote' may be work-from-anywhere — kept per unknown-data policy."""
+    listing = _listing(id="anywhere", is_remote=True, city=None, country=None, location_raw="Remote")
+    result = run([listing], _profile_with_rc(["AU"]), today=TODAY)
+    assert len(result.passed) == 1
+
+
+def test_remote_countries_null_means_any():
+    listing = _listing(id="us2", is_remote=True, city=None, country="US", location_raw="Remote (US)")
+    result = run([listing], _profile_with_rc(None), today=TODAY)
+    assert len(result.passed) == 1
+
+
+def test_onsite_allowlisted_city_unaffected_by_rc():
+    """Sydney onsite still passes via the allowlist regardless of remote-country rules."""
+    listing = _listing(id="syd", is_remote=False, city="Sydney", country="AU")
+    result = run([listing], _profile_with_rc(["AU"], locations_allowed=["Sydney"]), today=TODAY)
+    assert len(result.passed) == 1

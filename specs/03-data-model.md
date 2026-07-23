@@ -81,6 +81,8 @@ hard_requirements:               # STAGE 4 — any failure drops the listing; un
   remote_policy:     enum(remote_only, hybrid_ok, onsite_ok, any)   # defined in 02 §Stage 4
   exclude_locations: [string]    # drop roles based here EVEN IF labelled remote (e.g. Sydney);
                                  #   matched against parsed city/region/country, exact, case-insensitive
+  remote_countries_allowed: [string] | null   # null = any; else remote listings restricted
+                                 #   to a country outside this list lose remote status (02 §Stage 4)
   locations_allowed: [string]    # [] = anywhere (subject to remote_policy + exclude_locations);
                                  #   non-empty = positively restrict to these places; same matching
   seniority:                     # per-track bounds; omit a track to disallow it entirely;
