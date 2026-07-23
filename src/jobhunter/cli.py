@@ -2,8 +2,9 @@
 """CLI entry point for JobHunter.
 
 Commands:
-  jobhunter run [--profile PATH]   Run the full ingest→filter→score→digest pipeline.
-  jobhunter dismiss <id> [<id>…]   Permanently hide these listings from future digests.
+  jobhunter run [--profile PATH] [--state PATH]
+                                   Run the full ingest→filter→score→digest pipeline.
+  jobhunter dismiss <id> [<id>…]   Permanently hide listings from future digests.
   jobhunter undismiss <id>         Restore a previously dismissed listing.
   jobhunter dismissed              List all currently dismissed listing ids.
 
@@ -16,21 +17,29 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 from .digest import render_markdown
 from .pipeline import run as pipeline_run
 from .profile import ProfileError, load_profile
+from .state import (
+    dismiss_ids,
+    load_state,
+    partition_results,
+    save_state,
+    undismiss_id,
+    update_state,
+)
 
 _DEFAULT_PROFILE = Path("profile.yaml")
+_DEFAULT_STATE = Path("state/state.yaml")
 
 
 def _build_adapters() -> list:
-    """Build the list of configured source adapters from env vars.
+    """Build configured source adapters from env vars.
 
-    Currently supports Adzuna if ADZUNA_APP_ID and ADZUNA_APP_KEY are set.
-    Prints a warning to stderr for each unconfigured adapter and returns an
-    empty list when no adapters can be initialised.
+    Warns to stderr for each unconfigured adapter; returns empty list when none available.
     """
     adapters = []
 
@@ -51,34 +60,108 @@ def _build_adapters() -> list:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     profile_path = Path(args.profile)
+    state_path = Path(args.state)
+
     try:
         profile = load_profile(profile_path)
     except ProfileError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    try:
+        state = load_state(state_path)
+    except ValueError as e:
+        print(f"Error loading state: {e}", file=sys.stderr)
+        return 1
+
     adapters = _build_adapters()
 
-    results, report = pipeline_run(profile, adapters)
+    today = date.today().isoformat()
+    dismissed = set(state.dismissed_ids)
+    results, report = pipeline_run(profile, adapters, dismissed_ids=dismissed)
 
-    digest = render_markdown(results, report)
+    output_cfg = profile.get("output", {})
+    max_shown = int(output_cfg.get("max_shown", 25))
+    show_prev = bool(output_cfg.get("show_previously_seen", True))
+
+    new_results, prev_results = partition_results(results, state)
+
+    report.shown_new = len(new_results)
+    report.shown_previous = len(prev_results)
+
+    digest = render_markdown(
+        new_results,
+        report,
+        previously_seen=prev_results if show_prev else None,
+        max_shown=max_shown,
+        show_previously_seen=show_prev,
+    )
     print(digest)
+
+    # Record everything shown so next run knows what's been seen.
+    all_shown = new_results + (prev_results if show_prev else [])
+    update_state(state, all_shown, today)
+    try:
+        save_state(state, state_path)
+    except OSError as e:
+        print(f"Warning: could not save state to {state_path}: {e}", file=sys.stderr)
+
     return 0
 
 
 def _cmd_dismiss(args: argparse.Namespace) -> int:
-    print("dismiss: not yet implemented", file=sys.stderr)
-    return 1
+    state_path = Path(args.state)
+    try:
+        state = load_state(state_path)
+    except ValueError as e:
+        print(f"Error loading state: {e}", file=sys.stderr)
+        return 1
+
+    state = dismiss_ids(state, list(args.ids))
+    try:
+        save_state(state, state_path)
+    except OSError as e:
+        print(f"Error saving state: {e}", file=sys.stderr)
+        return 1
+
+    for lid in args.ids:
+        print(f"Dismissed: {lid}")
+    return 0
 
 
 def _cmd_undismiss(args: argparse.Namespace) -> int:
-    print("undismiss: not yet implemented", file=sys.stderr)
-    return 1
+    state_path = Path(args.state)
+    try:
+        state = load_state(state_path)
+    except ValueError as e:
+        print(f"Error loading state: {e}", file=sys.stderr)
+        return 1
+
+    state = undismiss_id(state, args.id)
+    try:
+        save_state(state, state_path)
+    except OSError as e:
+        print(f"Error saving state: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Undismissed: {args.id}")
+    return 0
 
 
 def _cmd_dismissed(args: argparse.Namespace) -> int:
-    print("dismissed: not yet implemented", file=sys.stderr)
-    return 1
+    state_path = Path(args.state)
+    try:
+        state = load_state(state_path)
+    except ValueError as e:
+        print(f"Error loading state: {e}", file=sys.stderr)
+        return 1
+
+    if not state.dismissed_ids:
+        print("No dismissed listings.")
+    else:
+        for lid in state.dismissed_ids:
+            print(lid)
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,17 +178,41 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=f"Path to profile.yaml (default: {_DEFAULT_PROFILE})",
     )
+    run_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
     run_p.set_defaults(func=_cmd_run)
 
     dismiss_p = sub.add_parser("dismiss", help="Permanently hide listings from future digests.")
     dismiss_p.add_argument("ids", nargs="+", metavar="ID", help="Listing id(s) to dismiss.")
+    dismiss_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
     dismiss_p.set_defaults(func=_cmd_dismiss)
 
     undismiss_p = sub.add_parser("undismiss", help="Restore a previously dismissed listing.")
     undismiss_p.add_argument("id", metavar="ID", help="Listing id to undismiss.")
+    undismiss_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
     undismiss_p.set_defaults(func=_cmd_undismiss)
 
     dismissed_p = sub.add_parser("dismissed", help="List all currently dismissed listing ids.")
+    dismissed_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
     dismissed_p.set_defaults(func=_cmd_dismissed)
 
     return parser

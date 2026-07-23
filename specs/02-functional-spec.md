@@ -2,17 +2,18 @@
 status: partial
 ---
 
-<!-- Known gaps (updated by rank-threshold build iteration):
-  Stages 1–6 are now complete end-to-end.
-  Stage 6 (rank/threshold): rank.run() sorts ScoredResult best-first (score desc →
-    recency desc → id asc), assigns 1-based ranks to all results, and splits by
-    display_threshold into shortlist vs. below_threshold_count. The full pipeline
-    (pipeline.run()) now returns (list[ScoredResult], RunReport). The Markdown digest
-    renders scores, ranks, and reasons for each listing. Active weights appear in the
-    header. 17 tests in tests/test_rank.py cover all Stage 6 acceptance criteria.
+<!-- Known gaps (updated by seen-state build iteration):
+  Stages 1–7 (seen-state) are now implemented.
+  Stage 7 seen-state: src/jobhunter/state.py provides load_state(), save_state(),
+    partition_results() (new vs. previously seen), update_state(), dismiss_ids(),
+    undismiss_id(). The CLI run command loads state, partitions results, updates state
+    after display, and saves. dismiss/undismiss/dismissed CLI commands are fully
+    implemented. The digest renders "New This Run" and "Previously shown" sections;
+    max_shown cap applied to the new section. 24 tests in tests/test_state.py cover
+    all Stage 7 seen-state and dismissal acceptance criteria.
   Remaining gaps (Phase 3):
-  - Stage 7 full: seen-state ("New this run" vs "Previously shown"), JSON data file,
-    dismiss/undismiss CLI, max_shown cap on new section.
+  - Stage 7 data file: JSON/CSV data file for all scored survivors (digest-html item).
+  - Stage 7 HTML digest: rich HTML output and header summary (digest-html item).
 -->
 
 # 02 — Functional Spec

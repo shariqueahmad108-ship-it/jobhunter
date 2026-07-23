@@ -423,7 +423,7 @@ class TestRenderMarkdown:
         passed, report = pipeline_run(BASE_PROFILE, [adapter], today=TODAY)
 
         md = render_markdown(passed, report)
-        assert "No roles matched" in md
+        assert "No new roles matched" in md
 
     def test_unknown_flags_appear_in_digest(self):
         """A listing with an ambiguous location carries its unknown flags in the digest."""

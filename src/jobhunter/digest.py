@@ -54,11 +54,48 @@ def _format_location(result: ScoredResult) -> str:
     return ", ".join(parts) if parts else (loc.raw or "location unclear")
 
 
+def _render_result_block(result: ScoredResult, lines: list[str]) -> None:
+    listing = result.listing
+    sid = _short_id(listing.id)
+    location_str = _format_location(result)
+    salary_str = _format_salary(listing.salary)
+    posted = listing.posted_at or listing.first_seen_at or "unknown"
+
+    lines.append(f"### #{result.rank} `{sid}` — {listing.title} at {listing.company}")
+    lines.append(
+        f"Score: {result.score:.0f}/100 | Location: {location_str} | "
+        f"Salary: {salary_str} | Posted: {posted}"
+    )
+    if result.summary_reason:
+        lines.append(f"Reason: {result.summary_reason}")
+
+    source_links = " | ".join(
+        f"[{src.name}]({src.url})" if src.url else src.name for src in listing.sources
+    )
+    lines.append(f"Sources: {source_links}")
+
+    if result.unknown_flags:
+        lines.append(f"Flags: {', '.join(result.unknown_flags)}")
+
+    lines.append("")
+
+
 def render_markdown(
     results: list[ScoredResult],
     report: RunReport,
+    previously_seen: list[ScoredResult] | None = None,
+    max_shown: int = 25,
+    show_previously_seen: bool = True,
 ) -> str:
     """Render a Markdown digest: run report header + ranked scored listings.
+
+    Args:
+        results:            "New this run" listings (ranked, at/above threshold).
+        report:             Per-run metadata for the header.
+        previously_seen:    Still-passing listings shown in a prior run; rendered
+                            in a secondary section when show_previously_seen is True.
+        max_shown:          Cap on the "New this run" section (default 25).
+        show_previously_seen: Whether to render the "Previously shown" section.
 
     See: specs/02-functional-spec.md §Stage 7
     """
@@ -92,11 +129,13 @@ def render_markdown(
         + report.dropped_by_age
         + report.dropped_dismissed
     )
+    prev_count = len(previously_seen) if previously_seen else report.shown_previous
     lines.append(
         f"Ingested: {report.ingested_count} | "
         f"After dedupe: {report.after_dedupe} | "
         f"Dropped by filters: {total_dropped} | "
-        f"Shown: {report.shown_new}"
+        f"New: {report.shown_new} | "
+        f"Previously shown: {prev_count}"
         + (f" | Below threshold: {report.below_threshold}" if report.below_threshold else "")
     )
     lines.append("")
@@ -117,37 +156,26 @@ def render_markdown(
     lines.append("---")
     lines.append("")
 
-    # --- Listings ---
-    lines.append(f"## New This Run ({report.shown_new})")
+    # --- New this run ---
+    capped = results[:max_shown]
+    overflow = len(results) - len(capped)
+    overflow_note = f" (showing {len(capped)} of {len(results)})" if overflow > 0 else ""
+    lines.append(f"## New This Run ({report.shown_new}){overflow_note}")
     lines.append("")
 
-    if not results:
-        lines.append("_No roles matched your criteria._")
-        return "\n".join(lines)
+    if not capped:
+        lines.append("_No new roles matched your criteria._")
+    else:
+        for result in capped:
+            _render_result_block(result, lines)
 
-    for result in results:
-        listing = result.listing
-        sid = _short_id(listing.id)
-        location_str = _format_location(result)
-        salary_str = _format_salary(listing.salary)
-        posted = listing.posted_at or listing.first_seen_at or "unknown"
-
-        lines.append(f"### #{result.rank} `{sid}` — {listing.title} at {listing.company}")
-        lines.append(
-            f"Score: {result.score:.0f}/100 | Location: {location_str} | "
-            f"Salary: {salary_str} | Posted: {posted}"
-        )
-        if result.summary_reason:
-            lines.append(f"Reason: {result.summary_reason}")
-
-        source_links = " | ".join(
-            f"[{src.name}]({src.url})" if src.url else src.name for src in listing.sources
-        )
-        lines.append(f"Sources: {source_links}")
-
-        if result.unknown_flags:
-            lines.append(f"Flags: {', '.join(result.unknown_flags)}")
-
+    # --- Previously shown ---
+    if show_previously_seen and previously_seen:
+        lines.append("---")
         lines.append("")
+        lines.append(f"## Previously Shown ({len(previously_seen)})")
+        lines.append("")
+        for result in previously_seen:
+            _render_result_block(result, lines)
 
     return "\n".join(lines)
