@@ -25,17 +25,10 @@ import re
 from datetime import date
 from typing import Optional
 
-from jobhunter.model import JobListing, ScoreComponent, ScoredResult
-
-_IC_LEVELS = ["intern", "junior", "mid", "senior", "staff", "principal"]
-_MGMT_LEVELS = ["manager", "senior_manager", "director", "vp"]
-
-_PERIOD_MULTIPLIERS: dict[str, float] = {
-    "year": 1.0,
-    "month": 12.0,
-    "day": 260.0,
-    "hour": 2080.0,
-}
+from jobhunter.model import IC_LEVELS as _IC_LEVELS
+from jobhunter.model import MANAGEMENT_LEVELS as _MGMT_LEVELS
+from jobhunter.model import PERIOD_MULTIPLIERS as _PERIOD_MULTIPLIERS
+from jobhunter.model import JobListing, ScoreComponent, ScoredResult, term_pattern
 
 _RECENCY_HALF_LIFE_DAYS = 14
 
@@ -44,12 +37,8 @@ def _score_skill_match(listing: JobListing, target_skills: list[str]) -> tuple[f
     """Word-boundary, case-insensitive overlap of target skills with title + description."""
     if not target_skills:
         return 0.5, "no target skills configured"
-    text = (listing.title + " " + listing.description).lower()
-    matched = [
-        skill
-        for skill in target_skills
-        if re.search(r"\b" + re.escape(skill.lower()) + r"\b", text)
-    ]
+    text = listing.title + " " + listing.description
+    matched = [skill for skill in target_skills if term_pattern(skill).search(text)]
     ratio = len(matched) / len(target_skills)
     if matched:
         shown = ", ".join(matched[:3])
@@ -130,11 +119,11 @@ def _score_compensation(listing: JobListing, profile: dict) -> tuple[float, str]
     if ann is None:
         return 0.5, "salary period unknown"
 
-    if salary_floor is None and salary_target is None:
-        return 0.5, f"annualized {salary_currency} {ann:,.0f} (no target configured)"
+    if salary_target is None:
+        return 0.5, f"annualized {salary_currency} {ann:,.0f} (no salary target configured)"
 
     floor = float(salary_floor) if salary_floor is not None else 0.0
-    target = float(salary_target) if salary_target is not None else floor * 1.5
+    target = float(salary_target)
 
     if target <= floor:
         sub = 1.0 if ann >= floor else 0.0
@@ -156,14 +145,22 @@ def _score_location_fit(listing: JobListing, preferences: dict) -> tuple[float, 
             return 0.75, "remote role"
         return 0.5, "no location preference configured"
 
+    from jobhunter.normalize import _COUNTRY_NAMES  # country-name → ISO map
+
     for pref in preferred_locations:
         pref_lower = pref.lower()
-        pref_words = set(re.split(r"[\s,]+", pref_lower))
-        if "remote" in pref_words and loc.is_remote:
-            return 1.0, f"matches preferred location: {pref}"
-        for field in parsed_fields:
-            if field in pref_words:
+        pref_words = set(re.split(r"[\s,]+", pref_lower)) - {""}
+        geo_words = pref_words - {"remote"}
+        geo_match = any(
+            w in parsed_fields or (_COUNTRY_NAMES.get(w) or "").lower() in parsed_fields
+            for w in geo_words
+        )
+        if "remote" in pref_words:
+            # "Remote" alone: any remote role. "Remote Australia": remote AND in AU.
+            if loc.is_remote and (not geo_words or geo_match):
                 return 1.0, f"matches preferred location: {pref}"
+        elif geo_match:
+            return 1.0, f"matches preferred location: {pref}"
 
     if loc.is_remote:
         return 0.75, "remote role (not in preferred locations)"
@@ -179,7 +176,7 @@ def _score_company_signal(listing: JobListing, preferences: dict) -> tuple[float
     for company in preferred_companies:
         if company.lower() == company_lower:
             return 1.0, f"preferred company: {company}"
-    return 0.0, "company not in preferred list"
+    return 0.5, "company not in preferred list (neutral)"
 
 
 def _score_recency(listing: JobListing, today: Optional[date] = None) -> tuple[float, str]:

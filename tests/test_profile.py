@@ -38,7 +38,7 @@ def _minimal(overrides: dict | None = None) -> dict:
             "remote_policy": "remote_only",
         },
         "preferences": {},
-        "weights": {},
+        "weights": {"skill_match": 1},
         "output": {},
     }
     if overrides:
@@ -562,3 +562,44 @@ def test_not_yaml_mapping(tmp_path: Path) -> None:
     p.write_text("- item1\n- item2\n")
     with pytest.raises(ProfileError, match="mapping"):
         load_profile(p)
+
+
+# ---------------------------------------------------------------------------
+# Validation tightening (spec 03 amendments)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_weights_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match="at least one positive weight"):
+        load_profile(_write(tmp_path, _minimal({"weights": {}})))
+
+
+def test_all_zero_weights_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match="at least one positive weight"):
+        load_profile(_write(tmp_path, _minimal({"weights": {"skill_match": 0, "recency": 0}})))
+
+
+def test_negative_weight_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match="negative"):
+        load_profile(_write(tmp_path, _minimal({"weights": {"skill_match": -5, "recency": 5}})))
+
+
+def test_bool_salary_floor_rejected(tmp_path: Path) -> None:
+    """isinstance(True, int) must not let booleans pass number validation."""
+    prof = _minimal()
+    prof["hard_requirements"] = {**prof["hard_requirements"], "salary_floor": True,
+                                 "salary_currency": "AUD"}
+    with pytest.raises(ProfileError, match="salary_floor"):
+        load_profile(_write(tmp_path, prof))
+
+
+def test_bool_weight_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match="weights.skill_match"):
+        load_profile(_write(tmp_path, _minimal({"weights": {"skill_match": True}})))
+
+
+def test_empty_locations_rejected(tmp_path: Path) -> None:
+    prof = _minimal()
+    prof["queries"] = {**prof["queries"], "locations": []}
+    with pytest.raises(ProfileError, match="locations must not be empty"):
+        load_profile(_write(tmp_path, prof))

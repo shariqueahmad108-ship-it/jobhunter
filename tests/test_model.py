@@ -431,3 +431,33 @@ class TestIdAndHashTogether:
         l1 = make_listing(title="Backend Engineer", company="Acme", location=loc)
         l2 = make_listing(title="Frontend Engineer", company="Acme", location=loc)
         assert l1.id != l2.id
+
+
+# ---------------------------------------------------------------------------
+# term_pattern: symbol-edged terms
+# ---------------------------------------------------------------------------
+
+from jobhunter.model import term_pattern
+
+
+class TestTermPattern:
+    def test_plain_word_boundaries(self):
+        assert term_pattern("PHP").search("Senior PHP Developer")
+        assert not term_pattern("PHP").search("PHPUnit expert")
+
+    def test_cpp_matches(self):
+        assert term_pattern("C++").search("C++ developer wanted")
+        assert term_pattern("C++").search("Knowledge of C++ required")
+
+    def test_no_substring_matches(self):
+        assert not term_pattern("java").search("javascript required")
+
+    def test_dotnet_matches(self):
+        assert term_pattern(".NET").search("Senior .NET Engineer")
+        assert not term_pattern(".NET").search("wideNETwork tooling")
+
+    def test_case_insensitive(self):
+        assert term_pattern("php").search("Senior PHP Developer")
+
+    def test_multiword(self):
+        assert term_pattern("system design").search("strong System Design skills")

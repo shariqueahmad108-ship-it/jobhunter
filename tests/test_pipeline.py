@@ -460,3 +460,69 @@ class TestRenderMarkdown:
         md = render_markdown(passed, report)
         assert "Sources failed:" in md
         assert "fixture" in md
+
+
+# ---------------------------------------------------------------------------
+# Request accounting and auth short-circuit
+# ---------------------------------------------------------------------------
+
+
+class _AuthError(Exception):
+    def __init__(self):
+        super().__init__("401 invalid credentials")
+        self.response = type("R", (), {"status_code": 401})()
+
+
+class _DeadAdapter:
+    name = "dead"
+
+    def search(self, keyword, location, max_results):
+        raise _AuthError()
+
+    def normalize(self, raw):
+        raise AssertionError("normalize should never be called")
+
+
+def test_auth_failure_short_circuits_adapter():
+    """A 401/403 adapter is abandoned after ONE failure, not retried per combo."""
+    profile = {
+        **BASE_PROFILE,
+        "queries": {
+            "keywords": ["a", "b", "c"],
+            "locations": ["x", "y"],
+            "max_results_per_query": 50,
+            "max_requests_per_run": 100,
+        },
+    }
+    results, report = pipeline_run(profile, [_DeadAdapter()], today=TODAY)
+    assert len(report.sources_failed) == 1
+    assert report.sources_failed[0].name == "dead"
+
+
+class _CountingAdapter:
+    name = "counting"
+
+    def __init__(self):
+        self.requests_made = 0
+        self.run_date = None
+
+    def search(self, keyword, location, max_results):
+        self.requests_made += 3  # simulate pagination: 3 HTTP requests per query
+        return []
+
+    def normalize(self, raw):
+        return raw
+
+
+def test_real_request_counts_used_when_adapter_reports_them():
+    profile = {
+        **BASE_PROFILE,
+        "queries": {
+            "keywords": ["a"],
+            "locations": ["x", "y"],
+            "max_results_per_query": 50,
+            "max_requests_per_run": 100,
+        },
+    }
+    results, report = pipeline_run(profile, [_CountingAdapter()], today=TODAY)
+    assert report.requests_made == 6  # 2 queries x 3 paginated requests

@@ -143,6 +143,41 @@ class RunReport:
 
 
 # ---------------------------------------------------------------------------
+# Canonical seniority tracks and period annualization — SINGLE SOURCE OF TRUTH.
+# Import these everywhere; do not redefine (spec 03 §Seniority, 02 §Stage 4).
+# ---------------------------------------------------------------------------
+
+IC_LEVELS = ["intern", "junior", "mid", "senior", "staff", "principal"]
+MANAGEMENT_LEVELS = ["manager", "senior_manager", "director", "vp"]
+
+PERIOD_MULTIPLIERS: dict[str, float] = {
+    "year": 1.0,
+    "month": 12.0,
+    "day": 260.0,
+    "hour": 2080.0,
+}
+
+
+# ---------------------------------------------------------------------------
+# Term matching
+# ---------------------------------------------------------------------------
+
+
+def term_pattern(term: str) -> "re.Pattern[str]":
+    """Case-insensitive whole-term pattern safe for symbol-edged terms.
+
+    `\b + re.escape(term)` fails for terms like "C++" or ".NET" whose edges are
+    non-word characters (\b needs a word char adjacent). Use explicit lookarounds
+    instead when a term edge is non-word.
+    """
+    esc = re.escape(term)
+    first, last = term[:1], term[-1:]
+    start = r"\b" if (first.isalnum() or first == "_") else r"(?<!\w)"
+    end = r"\b" if (last.isalnum() or last == "_") else r"(?!\w)"
+    return re.compile(start + esc + end, re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
 # Title normalization rules for id derivation
 # Ordered list of (pattern, replacement) tuples; applied word-boundary,
 # case-insensitive. Same rule table used by seniority inference in Stage 2.
@@ -153,8 +188,6 @@ _TITLE_SUBSTITUTIONS: list[tuple[str, str]] = [
     (r"\bsnr\.?\b", "senior"),
     (r"\bjr\.?\b", "junior"),
     (r"\blead\b", "staff"),
-    (r"\bprincipal\b", "principal"),
-    (r"\bstaff\b", "staff"),
 ]
 
 

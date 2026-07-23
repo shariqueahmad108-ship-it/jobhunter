@@ -288,10 +288,33 @@ class TestLocationFit:
         assert loc.sub == pytest.approx(1.0)
         assert "Remote Australia" in loc.reason
 
-    def test_remote_no_geo_matches_remote_preferred(self):
-        # "remote" is in pref + is_remote=True → 1.0 regardless of missing geo
-        listing = _listing(is_remote=True, country=None, city=None)
+    def test_remote_no_geo_pref_has_geo_is_partial(self):
+        """'Remote Australia' preference needs the AU part — unknown-country remote gets 0.75."""
+        listing = _listing(is_remote=True, city=None, country=None, location_raw="Remote")
         result = score(listing, BASE_PROFILE, today=TODAY)
+        loc = next(c for c in result.components if c.name == "location_fit")
+        assert loc.sub == pytest.approx(0.75)
+
+    def test_remote_in_preferred_country_scores_full(self):
+        listing = _listing(is_remote=True, city=None, country="AU", location_raw="Remote Australia")
+        result = score(listing, BASE_PROFILE, today=TODAY)
+        loc = next(c for c in result.components if c.name == "location_fit")
+        assert loc.sub == pytest.approx(1.0)
+
+    def test_remote_wrong_country_is_partial(self):
+        """A US remote role must NOT fully match a 'Remote Australia' preference."""
+        listing = _listing(is_remote=True, city=None, country="US", location_raw="Remote US")
+        result = score(listing, BASE_PROFILE, today=TODAY)
+        loc = next(c for c in result.components if c.name == "location_fit")
+        assert loc.sub == pytest.approx(0.75)
+
+    def test_bare_remote_preference_matches_any_remote(self):
+        profile = {
+            **BASE_PROFILE,
+            "preferences": {**BASE_PROFILE["preferences"], "preferred_locations": ["Remote"]},
+        }
+        listing = _listing(is_remote=True, city=None, country="US", location_raw="Remote US")
+        result = score(listing, profile, today=TODAY)
         loc = next(c for c in result.components if c.name == "location_fit")
         assert loc.sub == pytest.approx(1.0)
 
@@ -365,11 +388,12 @@ class TestCompanySignal:
         co = next(c for c in result.components if c.name == "company_signal")
         assert co.sub == pytest.approx(1.0)
 
-    def test_non_preferred_company_scores_zero(self):
+    def test_non_preferred_company_is_neutral(self):
+        """Company signal is bonus-only: not being on the list is not a penalty."""
         listing = _listing(company="Random Corp")
         result = score(listing, BASE_PROFILE, today=TODAY)
         co = next(c for c in result.components if c.name == "company_signal")
-        assert co.sub == pytest.approx(0.0)
+        assert co.sub == pytest.approx(0.5)
 
     def test_no_preferred_companies_returns_neutral(self):
         profile = {

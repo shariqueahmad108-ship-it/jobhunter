@@ -51,11 +51,22 @@ def run(
     truncated = False
     done = False
 
+    def _auth_failure(exc: Exception) -> bool:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return status in (401, 403)
+
     for adapter in adapters:
         if done:
             break
+        if today is not None and hasattr(adapter, "run_date"):
+            adapter.run_date = today.isoformat()
+        counts_requests = hasattr(adapter, "requests_made")
+        base_count = adapter.requests_made if counts_requests else 0
+        total_before_adapter = requests_made
+        queries_attempted = 0
+        adapter_dead = False
         for keyword in keywords:
-            if done:
+            if done or adapter_dead:
                 break
             for location in locations:
                 if requests_made >= max_requests:
@@ -64,13 +75,23 @@ def run(
                     break
                 try:
                     results = adapter.search(keyword, location, max_results)
+                    queries_attempted += 1
                     for raw in results:
                         raw_listings.append(adapter.normalize(raw))
-                    requests_made += 1
                     if adapter.name not in sources_used:
                         sources_used.append(adapter.name)
                 except Exception as exc:
+                    queries_attempted += 1
                     sources_failed.append(SourceFailure(name=adapter.name, error=str(exc)))
+                    if _auth_failure(exc):
+                        adapter_dead = True  # credentials are wrong; stop querying it
+                        break
+                # Prefer the adapter's real HTTP count (pagination makes one query
+                # several requests); fall back to one per attempted query.
+                if counts_requests:
+                    requests_made = total_before_adapter + (adapter.requests_made - base_count)
+                else:
+                    requests_made = total_before_adapter + queries_attempted
 
     # Stage 2: post-adapter normalization pass
     normalized = normalize.run(raw_listings)

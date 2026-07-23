@@ -127,11 +127,33 @@ def test_parse_salary_whitespace_only():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_salary_bare_dollar_maps_to_usd():
-    s = parse_salary("$120,000")
-    assert s is not None
+def test_parse_salary_bare_dollar_uses_default_currency():
+    """A bare $ carries no country info — resolve to default_currency, not USD."""
+    s = parse_salary("$120k-$150k", default_currency="AUD")
+    assert s.currency == "AUD"
+    assert s.min == 120_000 and s.max == 150_000
+
+
+def test_parse_salary_bare_dollar_no_default_is_unknown():
+    s = parse_salary("$120k-$150k")
+    assert s.currency is None
+    assert s.min == 120_000 and s.max == 150_000
+
+
+def test_parse_salary_explicit_code_overrides_default():
+    s = parse_salary("USD 150,000", default_currency="AUD")
     assert s.currency == "USD"
 
+
+def test_parse_salary_percent_tokens_ignored():
+    """'$120,000 + 10% super' must not read 10 as the max."""
+    s = parse_salary("circa $120,000 + 10% super", default_currency="AUD")
+    assert s.min == 120_000 and s.max == 120_000
+
+
+def test_parse_salary_inverted_range_swapped():
+    s = parse_salary("150k - 120k AUD")
+    assert s.min == 120_000 and s.max == 150_000
 
 def test_parse_salary_aud_prefix():
     s = parse_salary("AUD 120,000")

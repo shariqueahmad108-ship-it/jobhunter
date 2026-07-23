@@ -92,15 +92,34 @@ _EMPLOYMENT_MAP: dict[tuple[str, str], str] = {
 }
 
 
+_REMOTE_WORD_RE = re.compile(r"\bremote\b", re.IGNORECASE)
+_REMOTE_NEGATION_RE = re.compile(
+    r"\b(?:no|not|isn'?t|without|except|cannot|can'?t)\s+(?:be\s+|fully[\s-])?remote\b"
+    r"|\bno\s+remote\s+work\b"
+    r"|\bremote\s+work\s+(?:is\s+)?not\b",
+    re.IGNORECASE,
+)
+_REMOTE_POSITIVE_RE = re.compile(
+    r"\b(?:fully[\s-]remote|100%\s*remote|remote[\s-]first"
+    r"|work\s+from\s+(?:home|anywhere)"
+    r"|remote\s+(?:role|position|work|job|team))\b",
+    re.IGNORECASE,
+)
+
+
 def _detect_remote(title: str, description: str, location_raw: str) -> bool:
-    """Return True if any of title, location string, or description start hints at remote."""
-    pattern = re.compile(r"\bremote\b", re.IGNORECASE)
-    return bool(
-        pattern.search(title)
-        or pattern.search(location_raw)
-        # Only check the first 1000 chars of description to keep this fast
-        or pattern.search(description[:1000])
-    )
+    """Detect remoteness conservatively (see plan item fix-remote-detection).
+
+    Title and location strings are strong signals: a bare "remote" there counts.
+    Description text is weak: only explicit positive phrases count, and any
+    negated mention ("no remote work") vetoes description-based detection.
+    """
+    if _REMOTE_WORD_RE.search(title) or _REMOTE_WORD_RE.search(location_raw):
+        return True
+    head = description[:1000]
+    if _REMOTE_NEGATION_RE.search(head):
+        return False
+    return bool(_REMOTE_POSITIVE_RE.search(head))
 
 
 def _parse_location(loc: dict[str, Any]) -> Location:
@@ -145,7 +164,8 @@ def _parse_posted_at(created: str | None) -> str | None:
 class AdzunaAdapter:
     """Source adapter for the Adzuna Jobs API.
 
-    Credentials are read from ADZUNA_APP_ID and ADZUNA_APP_KEY environment variables.
+    Credentials come from explicit app_id/app_key args, falling back to the
+    ADZUNA_APP_ID and ADZUNA_APP_KEY environment variables.
 
     Args:
         country: Two-letter Adzuna country code (default "au" for Australia).
@@ -153,11 +173,20 @@ class AdzunaAdapter:
 
     name = "adzuna"
 
-    def __init__(self, country: str = "au") -> None:
-        self.app_id = os.environ["ADZUNA_APP_ID"]
-        self.app_key = os.environ["ADZUNA_APP_KEY"]
+    def __init__(
+        self,
+        app_id: str | None = None,
+        app_key: str | None = None,
+        country: str = "au",
+    ) -> None:
+        self.app_id = app_id if app_id is not None else os.environ["ADZUNA_APP_ID"]
+        self.app_key = app_key if app_key is not None else os.environ["ADZUNA_APP_KEY"]
         self.country = country.lower()
-        self._currency = _COUNTRY_CURRENCY.get(self.country, "AUD")
+        self.requests_made = 0  # actual HTTP requests issued (pipeline reads this)
+        self.run_date: str | None = None  # injected by the pipeline for first_seen_at
+        # Unknown country code => currency unknown (never guess); the salary
+        # comparison treats it via the unknown-salary policy.
+        self._currency = _COUNTRY_CURRENCY.get(self.country)
 
     def search(self, keyword: str, location: str, max_results: int = 50) -> list[RawListing]:
         """Fetch raw listings from Adzuna for one keyword+location query.
@@ -182,6 +211,7 @@ class AdzunaAdapter:
                 }
 
                 url = f"{_BASE_URL}/{self.country}/search/{page}"
+                self.requests_made += 1  # count the attempt even if it fails
                 response = client.get(url, params=params)
                 response.raise_for_status()
 
@@ -208,7 +238,9 @@ class AdzunaAdapter:
         title = (raw.get("title") or "").strip()
 
         company_obj = raw.get("company") or {}
-        company = (company_obj.get("display_name") or "Unknown").strip()
+        # Never guess: a missing company stays empty and is flagged downstream;
+        # its id is salted with the source id so unknown-company roles never merge.
+        company = (company_obj.get("display_name") or "").strip()
 
         description = strip_html(raw.get("description") or "")
 
@@ -246,7 +278,9 @@ class AdzunaAdapter:
         seniority: Seniority | None = infer_seniority(title, description)
         employment = _parse_employment(raw)
         posted_at = _parse_posted_at(raw.get("created"))
-        first_seen_at = date.today().isoformat()
+        # The pipeline injects the run date; date.today() is only a fallback for
+        # direct adapter use. The dedupe/seen merge owns "earliest first_seen_at".
+        first_seen_at = self.run_date or date.today().isoformat()
 
         source = Source(
             name=self.name,
@@ -269,6 +303,11 @@ class AdzunaAdapter:
             employment=employment,
             posted_at=posted_at,
         )
-        listing.id = derive_id(company, title, location)
+        if company:
+            listing.id = derive_id(company, title, location)
+        else:
+            # Salt with the source's own id: two unknown-company roles with the
+            # same title+location must not collapse into one listing.
+            listing.id = derive_id(f"__unknown_company__{source.source_id}", title, location)
         listing.content_hash = derive_content_hash(listing)
         return listing

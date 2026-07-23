@@ -22,6 +22,8 @@ import re
 from typing import Optional
 
 from jobhunter.model import (
+    IC_LEVELS,  # noqa: F401  re-exported for callers
+    MANAGEMENT_LEVELS,  # noqa: F401  re-exported for callers
     JobListing,
     Location,
     Salary,
@@ -38,13 +40,6 @@ __all__ = [
     "infer_seniority",
     "run",
 ]
-
-# ---------------------------------------------------------------------------
-# Seniority track level lists — exported for dedupe stage title normalization
-# ---------------------------------------------------------------------------
-
-IC_LEVELS = ["intern", "junior", "mid", "senior", "staff", "principal"]
-MANAGEMENT_LEVELS = ["manager", "senior_manager", "director", "vp"]
 
 # ---------------------------------------------------------------------------
 # HTML stripping
@@ -72,8 +67,14 @@ _CURRENCY_PATTERNS: list[tuple[str, str]] = [
     (r"£|(?<!\w)GBP(?!\w)", "GBP"),
     (r"€|(?<!\w)EUR(?!\w)", "EUR"),
     (r"(?<!\w)SGD(?!\w)|S\$", "SGD"),
-    (r"\$", "USD"),  # bare $ last — catches whatever the above missed
 ]
+
+# A bare "$" carries no country information — it resolves to the caller's
+# default_currency (None if unset), never to a hardcoded USD.
+_BARE_DOLLAR_RE = re.compile(r"\$")
+
+# Percentage tokens ("10% super") are not salary amounts.
+_PERCENT_RE = re.compile(r"\b\d[\d,]*(?:\.\d+)?\s*%")
 
 # Ordered (regex_pattern, canonical_period).  Checked case-insensitively.
 _PERIOD_PATTERNS: list[tuple[str, str]] = [
@@ -131,10 +132,12 @@ def parse_salary(
             period = p
             break
 
-    # Strip currency and period markers so only numeric tokens remain
-    clean = text
+    # Strip currency markers, period markers, and percentage tokens so only
+    # real salary amounts remain
+    clean = _PERCENT_RE.sub(" ", text)
     for pattern, _ in _CURRENCY_PATTERNS:
         clean = re.sub(pattern, " ", clean, flags=re.IGNORECASE)
+    clean = _BARE_DOLLAR_RE.sub(" ", clean)
     for pattern, _ in _PERIOD_PATTERNS:
         clean = re.sub(pattern, " ", clean, flags=re.IGNORECASE)
 
@@ -153,7 +156,10 @@ def parse_salary(
         v = amounts[0]
         return Salary(min=v, max=v, currency=currency, period=period, raw=text)
 
-    return Salary(min=amounts[0], max=amounts[1], currency=currency, period=period, raw=text)
+    lo, hi = amounts[0], amounts[1]
+    if lo > hi:
+        lo, hi = hi, lo  # tolerate inverted ranges
+    return Salary(min=lo, max=hi, currency=currency, period=period, raw=text)
 
 
 # ---------------------------------------------------------------------------

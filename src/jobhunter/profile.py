@@ -14,8 +14,8 @@ from typing import Any
 
 import yaml
 
-_IC_LEVELS = ["intern", "junior", "mid", "senior", "staff", "principal"]
-_MGMT_LEVELS = ["manager", "senior_manager", "director", "vp"]
+from jobhunter.model import IC_LEVELS as _IC_LEVELS
+from jobhunter.model import MANAGEMENT_LEVELS as _MGMT_LEVELS
 _REMOTE_POLICIES = {"remote_only", "hybrid_ok", "onsite_ok", "any"}
 _EMPLOYMENT_TYPES = {"full_time", "part_time", "contract", "temp", "internship"}
 _KEYWORD_SCOPES = {"title", "requirements"}
@@ -27,6 +27,15 @@ _TOP_LEVEL_KEYS = {"identity", "queries", "hard_requirements", "preferences", "w
 
 class ProfileError(ValueError):
     """Raised when a profile.yaml fails schema validation."""
+
+
+def _is_number(v) -> bool:
+    """True for int/float but NOT bool (isinstance(True, int) is True in Python)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def _require(obj: dict, key: str, path: str) -> Any:
@@ -94,10 +103,12 @@ def _validate_queries(queries: dict) -> None:
         raise ProfileError("queries.keywords must not be empty")
     locs = _require(queries, "locations", "queries")
     _expect_list_of_strings(locs, "queries.locations")
-    if "max_results_per_query" in queries:
-        _expect_type(queries["max_results_per_query"], int, "queries.max_results_per_query")
-    if "max_requests_per_run" in queries:
-        _expect_type(queries["max_requests_per_run"], int, "queries.max_requests_per_run")
+    if not locs:
+        raise ProfileError("queries.locations must not be empty")
+    if "max_results_per_query" in queries and not _is_int(queries["max_results_per_query"]):
+        raise ProfileError("queries.max_results_per_query: expected int")
+    if "max_requests_per_run" in queries and not _is_int(queries["max_requests_per_run"]):
+        raise ProfileError("queries.max_requests_per_run: expected int")
 
 
 def _validate_seniority_bounds(seniority: dict, path: str) -> None:
@@ -161,7 +172,7 @@ def _validate_hard_requirements(hr: dict) -> None:
 
     salary_floor = hr.get("salary_floor")
     if salary_floor is not None:
-        if not isinstance(salary_floor, (int, float)):
+        if not _is_number(salary_floor):
             raise ProfileError("hard_requirements.salary_floor: expected number")
         _require(hr, "salary_currency", "hard_requirements")
 
@@ -176,7 +187,7 @@ def _validate_hard_requirements(hr: dict) -> None:
                 raise ProfileError(
                     f"hard_requirements.fx_rates key must be string, got {type(k).__name__}"
                 )
-            if not isinstance(v, (int, float)):
+            if not _is_number(v):
                 raise ProfileError(
                     f"hard_requirements.fx_rates.{k}: expected number, got {type(v).__name__}"
                 )
@@ -208,7 +219,7 @@ def _validate_hard_requirements(hr: dict) -> None:
                 )
 
     if "max_age_days" in hr:
-        if not isinstance(hr["max_age_days"], (int, float)):
+        if not _is_number(hr["max_age_days"]):
             raise ProfileError("hard_requirements.max_age_days: expected number")
 
 
@@ -219,7 +230,7 @@ def _validate_preferences(prefs: dict) -> None:
     if "preferred_locations" in prefs:
         _expect_list_of_strings(prefs["preferred_locations"], "preferences.preferred_locations")
     if "salary_target" in prefs and prefs["salary_target"] is not None:
-        if not isinstance(prefs["salary_target"], (int, float)):
+        if not _is_number(prefs["salary_target"]):
             raise ProfileError("preferences.salary_target: expected number or null")
     if "preferred_companies" in prefs:
         _expect_list_of_strings(prefs["preferred_companies"], "preferences.preferred_companies")
@@ -237,8 +248,15 @@ def _validate_weights(weights: dict) -> None:
     _unknown_keys(weights, allowed, "weights")
     for k in allowed:
         if k in weights:
-            if not isinstance(weights[k], (int, float)):
+            if not _is_number(weights[k]):
                 raise ProfileError(f"weights.{k}: expected number, got {type(weights[k]).__name__}")
+            if weights[k] < 0:
+                raise ProfileError(f"weights.{k}: negative weights are invalid")
+    if not any(_is_number(v) and v > 0 for v in weights.values()):
+        raise ProfileError(
+            "weights: at least one positive weight is required (spec 03 — an "
+            "all-zero/empty weights block would make every score undefined)"
+        )
 
 
 def _validate_output(output: dict) -> None:
@@ -248,10 +266,10 @@ def _validate_output(output: dict) -> None:
         "output",
     )
     if "display_threshold" in output:
-        if not isinstance(output["display_threshold"], (int, float)):
+        if not _is_number(output["display_threshold"]):
             raise ProfileError("output.display_threshold: expected number")
     if "max_shown" in output:
-        if not isinstance(output["max_shown"], (int, float)):
+        if not _is_number(output["max_shown"]):
             raise ProfileError("output.max_shown: expected number")
     if "show_previously_seen" in output:
         _expect_type(output["show_previously_seen"], bool, "output.show_previously_seen")

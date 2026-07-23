@@ -32,23 +32,34 @@ def _prefer_nonnull(a, b):
     return a if a is not None else b
 
 
+def _location_completeness(loc) -> int:
+    return sum(x is not None for x in (loc.city, loc.region, loc.country))
+
+
 def _merge_two(primary: JobListing, secondary: JobListing) -> JobListing:
     """Merge secondary into primary and return the combined listing.
 
     Rules:
     - sources: union, deduped by (name, source_id), primary order first
     - first_seen_at: earliest of the two
-    - Non-optional identity fields (id, title, company, location, description): primary wins
+    - Non-optional identity fields (id, title, company, description): primary wins
+    - location: the more-completely-parsed one wins (spec 03: "most complete
+      non-null fields"); primary wins ties
     - Optional fields (salary, seniority, employment, posted_at): non-null wins;
       primary wins on conflict
     - content_hash: recomputed from the merged record
     """
+    location = (
+        primary.location
+        if _location_completeness(primary.location) >= _location_completeness(secondary.location)
+        else secondary.location
+    )
     merged = JobListing(
         id=primary.id,
         content_hash="",  # recomputed below
         title=primary.title,
         company=primary.company,
-        location=primary.location,
+        location=location,
         description=primary.description,
         sources=_merge_sources(primary.sources, secondary.sources),
         first_seen_at=min(primary.first_seen_at, secondary.first_seen_at),
@@ -115,6 +126,8 @@ def run(listings: list[JobListing]) -> list[JobListing]:
     url_to_lid: dict[str, str] = {}
     for lid, listing in primary_for.items():
         for src in listing.sources:
+            if not src.url:
+                continue  # empty/missing URL is not an identity signal
             if src.url in url_to_lid:
                 union(lid, url_to_lid[src.url])
             else:

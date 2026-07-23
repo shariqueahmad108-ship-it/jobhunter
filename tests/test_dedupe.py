@@ -533,3 +533,27 @@ def test_three_way_id_merge():
     result = run([a, b, c])
     assert len(result) == 1
     assert _source_count(result[0]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Empty URLs are not identity signals
+# ---------------------------------------------------------------------------
+
+
+def test_empty_urls_never_merge():
+    """Two different roles that both lack a URL must NOT be merged."""
+    a = _listing(title="Engineer", company="Acme", sources=[_src(url="")])
+    b = _listing(title="Designer", company="Zeta", sources=[_src(url="")])
+    out = run([a, b])
+    assert len(out) == 2
+
+
+def test_merge_prefers_more_complete_location():
+    """Spec 03: keep the most complete non-null fields — location included."""
+    # Same identity key (company+title+city|country) via country-only vs full parse
+    sparse = _listing(city=None, region=None, country="AU", location_raw="Australia")
+    rich = _listing(city=None, region="NSW", country="AU", location_raw="NSW, Australia")
+    out = run([sparse, rich])
+    assert len(out) == 1
+    assert out[0].location.region == "NSW"
+    assert out[0].location.country == "AU"

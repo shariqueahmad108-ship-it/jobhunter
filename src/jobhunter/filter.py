@@ -28,18 +28,10 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
-from jobhunter.model import JobListing, Location
-
-_IC_LEVELS = ["intern", "junior", "mid", "senior", "staff", "principal"]
-_MGMT_LEVELS = ["manager", "senior_manager", "director", "vp"]
-
-# Annualization multipliers per period
-_PERIOD_MULTIPLIERS: dict[str, float] = {
-    "year": 1.0,
-    "month": 12.0,
-    "day": 260.0,
-    "hour": 2080.0,
-}
+from jobhunter.model import IC_LEVELS as _IC_LEVELS
+from jobhunter.model import MANAGEMENT_LEVELS as _MGMT_LEVELS
+from jobhunter.model import PERIOD_MULTIPLIERS as _PERIOD_MULTIPLIERS
+from jobhunter.model import JobListing, Location, term_pattern
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +301,12 @@ def run(
             for kw in hr.get("exclude_keywords", []):
                 term: str = kw["term"]
                 scope: str = kw.get("scope", "requirements")
-                pattern = r"\b" + re.escape(term) + r"\b"
-                if re.search(pattern, listing.title, re.IGNORECASE):
+                pattern = term_pattern(term)
+                if pattern.search(listing.title):
                     tally.by_keyword += 1
                     drop_reason = "keyword"
                     break
-                if scope == "requirements" and re.search(
-                    pattern, listing.description, re.IGNORECASE
-                ):
+                if scope == "requirements" and pattern.search(listing.description):
                     tally.by_keyword += 1
                     drop_reason = "keyword"
                     break

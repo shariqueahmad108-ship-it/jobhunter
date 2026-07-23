@@ -182,6 +182,22 @@ def test_detect_remote_from_description():
     assert _detect_remote("Engineer", "This is a fully remote role.", "Sydney") is True
 
 
+def test_detect_remote_description_negation_rejected():
+    assert _detect_remote("Engineer", "This role has no remote work available.", "Sydney") is False
+    assert _detect_remote("Engineer", "This position cannot be remote.", "Sydney") is False
+
+
+def test_detect_remote_description_bare_mention_not_enough():
+    """A bare 'remote' in the description body is too weak a signal."""
+    assert _detect_remote("Engineer", "Our team spans several remote offices.", "Sydney") is False
+
+
+def test_detect_remote_description_positive_phrases():
+    assert _detect_remote("Engineer", "This is a 100% remote position.", "Sydney") is True
+    assert _detect_remote("Engineer", "We are a remote-first company.", "Sydney") is True
+    assert _detect_remote("Engineer", "You can work from home.", "Sydney") is True
+
+
 def test_detect_remote_false_when_not_present():
     assert _detect_remote("Software Engineer", "Office-based role.", "Sydney") is False
 
@@ -280,10 +296,24 @@ def test_normalize_company(adapter):
     assert listing.company == "Acme Corp"
 
 
-def test_normalize_company_missing_falls_back_to_unknown(adapter):
-    listing = adapter.normalize(_NO_COMPANY_LISTING)
-    assert listing.company == "Unknown"
+def test_normalize_company_missing_stays_empty(adapter):
+    """Never guess: a missing company is empty, not "Unknown"."""
+    raw = {**_SENIOR_LISTING, "company": {}}
+    listing = adapter.normalize(raw)
+    assert listing.company == ""
 
+
+def test_normalize_unknown_companies_never_share_ids(adapter):
+    """Two unknown-company roles with the same title+location get distinct ids."""
+    a = adapter.normalize({**_SENIOR_LISTING, "company": {}, "id": 111})
+    b = adapter.normalize({**_SENIOR_LISTING, "company": {}, "id": 222})
+    assert a.id != b.id
+
+
+def test_normalize_injected_run_date_used_for_first_seen(adapter):
+    adapter.run_date = "2026-01-15"
+    listing = adapter.normalize(_SENIOR_LISTING)
+    assert listing.first_seen_at == "2026-01-15"
 
 def test_normalize_description_html_stripped(adapter):
     listing = adapter.normalize(_SENIOR_LISTING)
@@ -571,6 +601,23 @@ def test_adapter_currency_us():
     with patch.dict(os.environ, {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}):
         adapter_us = AdzunaAdapter(country="us")
     assert adapter_us._currency == "USD"
+
+
+def test_adapter_explicit_credentials_no_env():
+    """Explicit app_id/app_key args work with NO env vars set (cli.py's call path)."""
+    excluded = {"ADZUNA_APP_ID", "ADZUNA_APP_KEY"}
+    clean_env = {k: v for k, v in os.environ.items() if k not in excluded}
+    with patch.dict(os.environ, clean_env, clear=True):
+        a = AdzunaAdapter(app_id="explicit_id", app_key="explicit_key")
+        assert a.app_id == "explicit_id" and a.app_key == "explicit_key"
+
+
+def test_adapter_unknown_country_currency_none():
+    """Unknown country code => currency None (unknown-salary policy), never a guess."""
+    env = {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}
+    with patch.dict(os.environ, env):
+        a = AdzunaAdapter(country="zz")
+        assert a._currency is None
 
 
 def test_adapter_missing_credentials_raises():
