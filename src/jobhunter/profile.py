@@ -172,7 +172,7 @@ def _validate_queries(queries: dict) -> None:
         _expect_type(feeds, list, "queries.feeds")
         for i, entry in enumerate(feeds):
             _expect_type(entry, dict, f"queries.feeds[{i}]")
-            _unknown_keys(entry, {"name", "url", "company_from_title"}, f"queries.feeds[{i}]")
+            _unknown_keys(entry, {"name", "url", "company_from_title", "region_location"}, f"queries.feeds[{i}]")
             name = _require(entry, "name", f"queries.feeds[{i}]")
             _expect_type(name, str, f"queries.feeds[{i}].name")
             if not name.strip():
@@ -232,7 +232,7 @@ def _validate_sources(sources: dict) -> None:
         _expect_type(feeds, list, "sources.feeds")
         for i, entry in enumerate(feeds):
             _expect_type(entry, dict, f"sources.feeds[{i}]")
-            _unknown_keys(entry, {"name", "url", "company_from_title"}, f"sources.feeds[{i}]")
+            _unknown_keys(entry, {"name", "url", "company_from_title", "region_location"}, f"sources.feeds[{i}]")
             name_val = _require(entry, "name", f"sources.feeds[{i}]")
             _expect_type(name_val, str, f"sources.feeds[{i}].name")
             url_val = _require(entry, "url", f"sources.feeds[{i}]")

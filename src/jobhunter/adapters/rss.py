@@ -17,6 +17,7 @@ See: specs/02-functional-spec.md §Stage 1–2
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from email.utils import parsedate_to_datetime
@@ -26,6 +27,7 @@ import httpx
 
 from jobhunter.model import (
     JobListing,
+    Location,
     Source,
     derive_content_hash,
     derive_id,
@@ -43,6 +45,66 @@ _FEED_ACCEPT = (
     "application/rss+xml, application/atom+xml, "
     "application/xml;q=0.9, text/xml;q=0.8, */*;q=0.7"
 )
+
+
+# ---------------------------------------------------------------------------
+# WeWorkRemotely-style region resolution (opt-in per feed via region_location)
+# ---------------------------------------------------------------------------
+
+_ANYWHERE_RE = re.compile(r"anywhere", re.IGNORECASE)
+_US_RE = re.compile(r"\b(u\.?s\.?a?|united states)\b", re.IGNORECASE)
+
+# Full US state names — WWR puts these in <region>/<state> for US-only roles.
+_US_STATE_NAMES: frozenset[str] = frozenset({
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+    "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+    "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
+    "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+    "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey",
+    "new mexico", "new york", "north carolina", "north dakota", "ohio",
+    "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina",
+    "south dakota", "tennessee", "texas", "utah", "vermont", "virginia",
+    "washington", "west virginia", "wisconsin", "wyoming",
+    "district of columbia",
+})
+
+
+def _strip_non_ascii(s: str) -> str:
+    """Drop flag emoji / non-ASCII and collapse whitespace."""
+    return " ".join(re.sub(r"[^\x00-\x7f]", " ", s).split())
+
+
+def _wwr_location(region: str, country: str, state: str) -> Location:
+    """Resolve WeWorkRemotely region/country/state fields to a Location.
+
+    Every WWR listing is remote. ``<region>`` is the work-scope signal:
+      - "Anywhere in the World" -> globally remote (country None -> counts as
+        remote for any remote_countries_allowed, so it is kept).
+      - a US state name / "USA Only" / "United States" -> country "US" (a
+        remote role restricted to the US, which drops for an AU-only searcher).
+      - an explicit country name -> that country via parse_location.
+    Unresolved scopes leave country None (kept + flagged), never wrongly dropped.
+    """
+    region = (region or "").strip()
+    country = _strip_non_ascii(country or "")
+    state = (state or "").strip()
+    raw = region or country or state or "Remote"
+
+    if region and _ANYWHERE_RE.search(region):
+        return Location(raw=raw, city=None, region=None, country=None, is_remote=True)
+
+    resolved: str | None = None
+    if country:
+        resolved = parse_location(country).country
+    if resolved is None:
+        for cand in (region, state):
+            if cand.lower() in _US_STATE_NAMES or _US_RE.search(cand):
+                resolved = "US"
+                break
+    if resolved is None and region:
+        resolved = parse_location(region.replace(" Only", "")).country
+
+    return Location(raw=raw, city=None, region=None, country=resolved, is_remote=True)
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +162,9 @@ def _parse_rss2_items(root: ET.Element) -> list[dict]:
                 "guid": guid,
                 "description": description,
                 "published": published,
+                "region": (item.findtext("region") or "").strip(),
+                "country": (item.findtext("country") or "").strip(),
+                "state": (item.findtext("state") or "").strip(),
             }
         )
     return items
@@ -243,6 +308,7 @@ class FeedAdapter:
                     item["_feed_url"] = feed_url
                     item["_run_date"] = self.run_date
                     item["_company_from_title"] = bool(feed_cfg.get("company_from_title"))
+                    item["_region_location"] = bool(feed_cfg.get("region_location"))
                 results.extend(items)
             except Exception as exc:
                 self.company_failures.append(f"{feed_name} ({feed_url}): {exc}")
@@ -274,7 +340,15 @@ class FeedAdapter:
             if maybe_company.strip() and rest.strip():
                 company = maybe_company.strip()
                 title = rest.strip()
-        location = parse_location("")
+
+        # Opt-in per feed: resolve WeWorkRemotely-style region/country/state
+        # into a remote Location so US-only roles can be region-filtered.
+        if raw.get("_region_location"):
+            location = _wwr_location(
+                raw.get("region") or "", raw.get("country") or "", raw.get("state") or ""
+            )
+        else:
+            location = parse_location("")
 
         first_seen_at = run_date or published or date.today().isoformat()
         seniority = infer_seniority(title, description)

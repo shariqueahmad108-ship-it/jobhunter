@@ -847,3 +847,58 @@ class TestFeedAdapterCompanyFromTitle:
         listing = adapter.normalize(items[0])
         assert listing.company == "Stripe"
         assert listing.title == "Staff Engineer"
+
+
+class TestFeedAdapterRegionLocation:
+    """Opt-in WeWorkRemotely region/country/state -> remote Location resolution."""
+
+    def _item(self, region, country="", state="", title="Co: Role"):
+        return {
+            "title": title, "link": "https://wwr.test/j", "guid": "g",
+            "description": "role", "published": "2026-07-23",
+            "_feed_name": "weworkremotely", "_run_date": "2026-07-23",
+            "_company_from_title": True, "_region_location": True,
+            "region": region, "country": country, "state": state,
+        }
+
+    def test_anywhere_is_global_remote(self):
+        adapter = FeedAdapter([])
+        loc = adapter.normalize(self._item("Anywhere in the World", country="🇺🇸 United States of America", state="Pennsylvania")).location
+        assert loc.is_remote is True
+        assert loc.country is None  # global remote wins over HQ country
+
+    def test_us_state_resolves_to_us(self):
+        adapter = FeedAdapter([])
+        loc = adapter.normalize(self._item("Massachusetts")).location
+        assert loc.is_remote is True
+        assert loc.country == "US"
+
+    def test_us_state_minnesota_resolves_to_us(self):
+        adapter = FeedAdapter([])
+        assert adapter.normalize(self._item("Minnesota")).location.country == "US"
+
+    def test_explicit_country_field_resolves(self):
+        adapter = FeedAdapter([])
+        loc = adapter.normalize(self._item("Somewhere", country="🇺🇸 United States of America")).location
+        assert loc.country == "US"
+
+    def test_no_region_location_flag_keeps_empty_location(self):
+        adapter = FeedAdapter([])
+        item = self._item("Massachusetts")
+        item["_region_location"] = False
+        loc = adapter.normalize(item).location
+        assert loc.country is None
+
+    def test_parser_extracts_region_country_state(self):
+        from jobhunter.adapters.rss import parse_feed_xml
+        xml = (
+            '<?xml version="1.0"?><rss xmlns:media="http://x"><channel>'
+            "<item><title>Co: Role</title><link>https://wwr.test/j</link>"
+            "<guid>1</guid><description>d</description>"
+            "<pubDate>Wed, 23 Jul 2026 00:00:00 GMT</pubDate>"
+            "<region>Massachusetts</region><country></country><state></state>"
+            "</item></channel></rss>"
+        )
+        items = parse_feed_xml(xml)
+        assert items[0]["region"] == "Massachusetts"
+        assert items[0]["country"] == ""
