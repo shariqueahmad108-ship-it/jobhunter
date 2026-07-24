@@ -172,7 +172,7 @@ def _validate_queries(queries: dict) -> None:
         _expect_type(feeds, list, "queries.feeds")
         for i, entry in enumerate(feeds):
             _expect_type(entry, dict, f"queries.feeds[{i}]")
-            _unknown_keys(entry, {"name", "url"}, f"queries.feeds[{i}]")
+            _unknown_keys(entry, {"name", "url", "company_from_title"}, f"queries.feeds[{i}]")
             name = _require(entry, "name", f"queries.feeds[{i}]")
             _expect_type(name, str, f"queries.feeds[{i}].name")
             if not name.strip():
@@ -232,7 +232,7 @@ def _validate_sources(sources: dict) -> None:
         _expect_type(feeds, list, "sources.feeds")
         for i, entry in enumerate(feeds):
             _expect_type(entry, dict, f"sources.feeds[{i}]")
-            _unknown_keys(entry, {"name", "url"}, f"sources.feeds[{i}]")
+            _unknown_keys(entry, {"name", "url", "company_from_title"}, f"sources.feeds[{i}]")
             name_val = _require(entry, "name", f"sources.feeds[{i}]")
             _expect_type(name_val, str, f"sources.feeds[{i}].name")
             url_val = _require(entry, "url", f"sources.feeds[{i}]")
@@ -394,7 +394,9 @@ def _validate_hard_requirements(hr: dict) -> None:
 
 def _validate_preferences(prefs: dict) -> None:
     _unknown_keys(
-        prefs, {"preferred_locations", "salary_target", "preferred_companies"}, "preferences"
+        prefs,
+        {"preferred_locations", "salary_target", "preferred_companies", "deprioritize_keywords"},
+        "preferences",
     )
     if "preferred_locations" in prefs:
         _expect_list_of_strings(prefs["preferred_locations"], "preferences.preferred_locations")
@@ -403,6 +405,10 @@ def _validate_preferences(prefs: dict) -> None:
             raise ProfileError("preferences.salary_target: expected number or null")
     if "preferred_companies" in prefs:
         _expect_list_of_strings(prefs["preferred_companies"], "preferences.preferred_companies")
+    if "deprioritize_keywords" in prefs:
+        _expect_list_of_strings(
+            prefs["deprioritize_keywords"], "preferences.deprioritize_keywords"
+        )
 
 
 def _validate_weights(weights: dict) -> None:

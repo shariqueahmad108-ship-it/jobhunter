@@ -617,3 +617,66 @@ class TestScoreOverall:
         )
         result = score(listing, BASE_PROFILE, today=TODAY)
         assert result.score < 30.0
+
+
+# ---------------------------------------------------------------------------
+# deprioritize_keywords — off-domain relevance gate
+# ---------------------------------------------------------------------------
+
+
+class TestDeprioritizeKeywords:
+    """preferences.deprioritize_keywords halves the score per matched title term."""
+
+    _PROFILE = {
+        **BASE_PROFILE,
+        "preferences": {
+            **BASE_PROFILE["preferences"],
+            "deprioritize_keywords": [
+                "sales", "presales", "marketing", "product manager", "events manager",
+            ],
+        },
+    }
+
+    def _score(self, title, profile=None):
+        listing = _listing(
+            title=title,
+            seniority=Seniority(track="management", level="director"),
+        )
+        return score(listing, profile or self._PROFILE, today=TODAY).score
+
+    def test_off_domain_title_is_downscored(self):
+        base = self._score("Regional Director")
+        penalized = self._score("Sales Director")
+        assert penalized == pytest.approx(base * 0.5, abs=0.05)
+
+    def test_two_matches_quarter_score(self):
+        base = self._score("Regional Director")
+        penalized = self._score("Marketing Product Manager Director")
+        assert penalized == pytest.approx(base * 0.25, abs=0.05)
+
+    def test_on_domain_title_unaffected(self):
+        assert self._score("Head of Community") == pytest.approx(self._score("Regional Director"))
+
+    def test_reason_names_the_matched_term(self):
+        listing = _listing(
+            title="Presales Engineer",
+            seniority=Seniority(track="ic", level="senior"),
+        )
+        result = score(listing, self._PROFILE, today=TODAY)
+        assert "off-domain title" in result.summary_reason
+        assert "presales" in result.summary_reason
+
+    def test_no_deprioritize_config_is_noop(self):
+        listing = _listing(title="Sales Director",
+                           seniority=Seniority(track="management", level="director"))
+        # BASE_PROFILE has no deprioritize_keywords → full score, no penalty text
+        result = score(listing, BASE_PROFILE, today=TODAY)
+        assert "off-domain" not in result.summary_reason
+
+    def test_word_boundary_no_false_match(self):
+        # "wholesale" must NOT match the "sale"/"sales" term; "salesforce" as a
+        # product word in a non-sales title should also be safe here since the
+        # term is "sales" (word-boundary) — use a clean on-domain control.
+        assert self._score("Wholesale Operations Lead") == pytest.approx(
+            self._score("Regional Director")
+        )

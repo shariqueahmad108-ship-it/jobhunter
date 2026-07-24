@@ -242,6 +242,7 @@ class FeedAdapter:
                     item["_feed_name"] = feed_name
                     item["_feed_url"] = feed_url
                     item["_run_date"] = self.run_date
+                    item["_company_from_title"] = bool(feed_cfg.get("company_from_title"))
                 results.extend(items)
             except Exception as exc:
                 self.company_failures.append(f"{feed_name} ({feed_url}): {exc}")
@@ -264,7 +265,15 @@ class FeedAdapter:
         published = raw.get("published")
 
         # Feeds rarely carry structured company or location data.
+        # Opt-in per feed: some boards (e.g. WeWorkRemotely) encode the employer
+        # in the title as "Company: Position" — split it so the company shows and
+        # the title scores/deduplicates on the role alone.
         company = ""
+        if raw.get("_company_from_title") and ": " in title:
+            maybe_company, _, rest = title.partition(": ")
+            if maybe_company.strip() and rest.strip():
+                company = maybe_company.strip()
+                title = rest.strip()
         location = parse_location("")
 
         first_seen_at = run_date or published or date.today().isoformat()

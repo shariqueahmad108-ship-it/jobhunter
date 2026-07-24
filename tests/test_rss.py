@@ -781,3 +781,69 @@ output:
         )
         with pytest.raises(ProfileError, match="empty"):
             self._load(self._base_profile_yaml(feeds_yaml))
+
+
+class TestFeedAdapterCompanyFromTitle:
+    """Opt-in "Company: Position" title split (e.g. WeWorkRemotely)."""
+
+    def _item(self, title, flag):
+        return {
+            "title": title,
+            "link": "https://weworkremotely.com/remote-jobs/x",
+            "guid": "g",
+            "description": "<p>role</p>",
+            "published": "2026-07-23",
+            "_feed_name": "weworkremotely",
+            "_feed_url": "https://weworkremotely.com/remote-jobs.rss",
+            "_run_date": "2026-07-23",
+            "_company_from_title": flag,
+        }
+
+    def test_splits_company_and_title_when_enabled(self):
+        adapter = FeedAdapter([])
+        r = adapter.normalize(self._item("Twilio: Principal Presales Engineer", True))
+        assert r.company == "Twilio"
+        assert r.title == "Principal Presales Engineer"
+
+    def test_splits_only_on_first_delimiter(self):
+        adapter = FeedAdapter([])
+        r = adapter.normalize(self._item("Dropbox: Director, Product Design", True))
+        assert r.company == "Dropbox"
+        assert r.title == "Director, Product Design"
+
+    def test_no_split_when_flag_absent(self):
+        adapter = FeedAdapter([])
+        r = adapter.normalize(self._item("Twilio: Principal Presales Engineer", False))
+        assert r.company == ""
+        assert r.title == "Twilio: Principal Presales Engineer"
+
+    def test_no_split_when_no_delimiter(self):
+        adapter = FeedAdapter([])
+        r = adapter.normalize(self._item("Principal Engineer", True))
+        assert r.company == ""
+        assert r.title == "Principal Engineer"
+
+    def test_no_split_when_empty_side(self):
+        adapter = FeedAdapter([])
+        r = adapter.normalize(self._item("Company: ", True))
+        assert r.company == ""
+
+    def test_search_injects_flag_from_feed_config(self):
+        from unittest.mock import patch
+
+        feed = {"name": "wwr", "url": "https://wwr.test/f.rss", "company_from_title": True}
+        adapter = FeedAdapter([feed])
+        xml = (
+            '<?xml version="1.0"?><rss><channel>'
+            "<item><title>Stripe: Staff Engineer</title>"
+            "<link>https://wwr.test/j/1</link><guid>1</guid>"
+            "<description>role</description>"
+            "<pubDate>Wed, 23 Jul 2026 00:00:00 GMT</pubDate></item>"
+            "</channel></rss>"
+        )
+        with patch("jobhunter.adapters.rss.fetch_feed", return_value=xml):
+            items = adapter.search("", "", 50)
+        assert items and items[0]["_company_from_title"] is True
+        listing = adapter.normalize(items[0])
+        assert listing.company == "Stripe"
+        assert listing.title == "Staff Engineer"

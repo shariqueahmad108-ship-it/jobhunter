@@ -1085,3 +1085,28 @@ def test_fx_rates_age_days_old_file(tmp_path: Path) -> None:
     old_mtime = _time.time() - 100 * 86400  # 100 days ago
     _os.utime(f, (old_mtime, old_mtime))
     assert fx_rates_age_days(f) == 100
+
+
+def test_preferences_deprioritize_keywords_valid(tmp_path: Path) -> None:
+    data = _minimal()
+    data["preferences"]["deprioritize_keywords"] = ["sales", "marketing", "product manager"]
+    r = load_profile(_write(tmp_path, data))
+    assert r["preferences"]["deprioritize_keywords"] == ["sales", "marketing", "product manager"]
+
+
+def test_preferences_deprioritize_keywords_must_be_strings(tmp_path: Path) -> None:
+    data = _minimal()
+    data["preferences"]["deprioritize_keywords"] = ["sales", 123]
+    with pytest.raises(ProfileError, match="deprioritize_keywords"):
+        load_profile(_write(tmp_path, data))
+
+
+def test_sources_feeds_company_from_title_accepted(tmp_path: Path) -> None:
+    data = _minimal()
+    data["sources"] = {
+        "feeds": [
+            {"name": "wwr", "url": "https://wwr.test/f.rss", "company_from_title": True}
+        ]
+    }
+    r = load_profile(_write(tmp_path, data))
+    assert r["sources"]["feeds"][0]["company_from_title"] is True

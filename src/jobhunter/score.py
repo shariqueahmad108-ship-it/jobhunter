@@ -212,6 +212,26 @@ def _score_recency(listing: JobListing, today: Optional[date] = None) -> tuple[f
     return sub, f"posted {label}"
 
 
+def _domain_penalty(listing: JobListing, preferences: dict) -> tuple[float, Optional[str]]:
+    """Multiplicative relevance gate: down-rank off-domain role types.
+
+    ``preferences.deprioritize_keywords`` lists title terms (word-boundary,
+    case-insensitive) for role families the searcher does NOT want floated up
+    by seniority / recency alone — e.g. sales, marketing, generic product or
+    events management. Each distinct matched term halves the composite score,
+    so a clearly off-domain title drops well below threshold while staying
+    visible (down-scored, not filtered). Returns (factor, reason)."""
+    terms: list[str] = preferences.get("deprioritize_keywords") or []
+    if not terms:
+        return 1.0, None
+    matched = [t for t in terms if term_pattern(t).search(listing.title)]
+    if not matched:
+        return 1.0, None
+    factor = 0.5 ** len(matched)
+    shown = ", ".join(matched[:3])
+    return factor, f"off-domain title ({shown}): x{factor:g}"
+
+
 def score(
     listing: JobListing,
     profile: dict,
@@ -262,6 +282,12 @@ def score(
         summary_reason = "; ".join(c.reason for c in top[:2])
     else:
         summary_reason = "no active scoring components"
+
+    # Relevance gate: down-rank off-domain role types (sales / marketing / etc.)
+    penalty, penalty_reason = _domain_penalty(listing, prefs)
+    if penalty < 1.0:
+        score_val *= penalty
+        summary_reason = f"{penalty_reason}; {summary_reason}"
 
     return ScoredResult(
         listing=listing,
