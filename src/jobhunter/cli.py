@@ -23,6 +23,7 @@ from pathlib import Path
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .pipeline import run as pipeline_run
 from .pipeline import run_with_snapshot as pipeline_run_with_snapshot
+from .probe import format_probe_result, probe_check, probe_single
 from .profile import (
     ProfileError,
     effective_fx_rates,
@@ -585,6 +586,55 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_probe(args: argparse.Namespace) -> int:
+    if args.check and args.target:
+        print("Error: --check cannot be combined with a target URL/slug.", file=sys.stderr)
+        return 1
+    if not args.check and not args.target:
+        print("Error: provide a target URL/slug or use --check.", file=sys.stderr)
+        return 1
+
+    if args.check:
+        profile_path = Path(args.profile)
+        try:
+            profile = load_profile(profile_path)
+        except ProfileError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+        sources = profile.get("sources") or {}
+        watchlist = sources.get("ats_watchlist") or []
+        if not watchlist:
+            watchlist = profile.get("queries", {}).get("ats_watchlist") or []
+
+        if not watchlist:
+            print("No ats_watchlist entries found in profile.")
+            return 0
+
+        statuses = probe_check(watchlist)
+        has_dead = False
+        for status in statuses:
+            entry = status.entry
+            name = entry.get("name") or (entry.get("slug") or "").replace("-", " ").title()
+            ats_type = entry.get("ats", "")
+            slug = entry.get("slug", "")
+            if status.result:
+                print(format_probe_result(status.result, name=name))
+            else:
+                print(f"dead: {ats_type}/{slug} ({name}) — not confirmed")
+                has_dead = True
+        return 1 if has_dead else 0
+
+    # Single-target mode
+    results = probe_single(args.target, ats_hint=args.ats)
+    if not results:
+        print(f"not confirmed: {args.target}")
+        return 0
+    for result in results:
+        print(format_probe_result(result))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jobhunter",
@@ -711,6 +761,35 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Path to run-state file for dismissed ids (default: {_DEFAULT_STATE})",
     )
     replay_p.set_defaults(func=_cmd_replay)
+    probe_p = sub.add_parser(
+        "probe",
+        help="Detect ATS boards from a careers URL/slug, or check the profile watchlist.",
+    )
+    probe_p.add_argument(
+        "target",
+        nargs="?",
+        metavar="URL_OR_SLUG",
+        default=None,
+        help="Careers page URL or bare company slug to probe.",
+    )
+    probe_p.add_argument(
+        "--ats",
+        choices=("greenhouse", "lever", "ashby", "workday"),
+        default=None,
+        help="ATS to probe (default: try greenhouse, lever, ashby in sequence).",
+    )
+    probe_p.add_argument(
+        "--check",
+        action="store_true",
+        help="Probe every entry in the profile ats_watchlist.",
+    )
+    probe_p.add_argument(
+        "--profile",
+        default=str(_DEFAULT_PROFILE),
+        metavar="PATH",
+        help=f"Profile for --check mode (default: {_DEFAULT_PROFILE})",
+    )
+    probe_p.set_defaults(func=_cmd_probe)
 
     return parser
 
