@@ -3,7 +3,7 @@
 
 # JobHunter
 
-A personal, spec-driven job-search pipeline. It fetches listings from job
+A spec-driven job-search pipeline. It fetches listings from job
 boards and company ATS boards, drops the ones that fail your hard
 requirements, scores the survivors against your profile, and writes a ranked
 digest — so you review a short list instead of scrolling job sites.

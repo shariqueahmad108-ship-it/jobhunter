@@ -22,9 +22,6 @@ skills, no plugin, and no separate governance layer.
 - `profile.yaml` — the user's real job criteria (git-ignored; copied from
   `specs/profile.example.yaml`). Never commit a real `profile.yaml`.
 
-There is no `src/` tree yet — Phase 1 creates it. Until then, `build` scaffolds
-it per `specs/04-technical-plan.md`.
-
 ## Validation commands (the build "backpressure" step)
 
 Run the chosen work item's own **Validation** block first. General checks:
