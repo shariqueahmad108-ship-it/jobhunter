@@ -19,7 +19,7 @@ their place is what keeps the digest short.
 
 ---
 
-## 5.1 — Source contribution stats
+## 5.1 — Source contribution stats *(built)*
 
 **Problem.** The run report names `sources_used` and `sources_failed`, but not
 what each source *bought*. A source that returns 400 listings of which none
@@ -72,7 +72,7 @@ interpretable on its own without running the command.
 
 ---
 
-## 5.2 — Offline re-scoring (`replay`)
+## 5.2 — Offline re-scoring (`replay`) *(built)*
 
 **Problem.** Every calibration change — a threshold, a weight, a new
 `deprioritize_keywords` term — currently costs a full live run against
@@ -118,7 +118,7 @@ hidden), because that reflects a real user decision.
 
 ---
 
-## 5.3 — ATS board detection (`probe`)
+## 5.3 — ATS board detection (`probe`) *(built)*
 
 **Problem.** Every watchlist entry needs an `ats` + `slug` pair that only a
 human can currently establish, by opening a careers page and reading the URL.

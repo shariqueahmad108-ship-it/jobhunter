@@ -45,6 +45,13 @@ Pull raw listings from one or more configured sources for the queries defined in
 - Each source is a pluggable adapter with a common output shape (see `03-data-model.md`).
 - A source failure (timeout, auth error, rate limit) is logged and skipped; other sources still run.
 - Respect each source's rate limits and pagination; stop at a configurable max results per query.
+- Sources are activated per-profile under `sources:` (03 §Profile). A source absent from that
+  block, or `enabled: false`, is never fetched — no adapter is on by default.
+- **Generic feeds carry per-feed parsing options**, because RSS has no agreed job schema:
+  `company_from_title` (the feed packs `"Company: Title"` into one element — split on the
+  first `": "`) and `region_location` (the feed's scope lives in a `<region>` element rather
+  than a location field — parse it as the location). Both default off; they change parsing
+  only, never filtering.
 - **Run-cost bound:** total requests per run ≤ `sources × keywords × locations × pages`, and the
   runner enforces `max_requests_per_run` (profile) as a hard cap — the run stops ingesting and
   notes truncation in the run report rather than exceeding it.
@@ -135,7 +142,11 @@ Configurable hard filters:
   match per field), never substring-matching the raw string. A listing that says only "Remote"
   with no country passes `remote_only`/`hybrid_ok` and cannot be matched against
   `exclude_locations` — it is kept (unknown-data policy) and marked "remote scope unclear" in the
-  digest (it may be remote-elsewhere-only, or based somewhere excluded).
+  digest (it may be remote-elsewhere-only, or based somewhere excluded). When the **title** names
+  an unambiguous scope (a region acronym such as EMEA/APAC, or a country after a separator, in
+  parentheses, or as the final word), the flag names it instead: "remote scope: title hints EMEA".
+  This is deliberately conservative — it refines a flag, never drops a listing, so a false
+  negative costs nothing and a false positive would cost a real role.
 - **Seniority:** must be within `[min_seniority, max_seniority]` **on its own track**; the profile
   sets bounds per track (either track may be disabled entirely). A listing whose track is
   disallowed is dropped; unknown seniority is kept (policy above). Omitting the whole
@@ -183,6 +194,10 @@ Score each surviving listing 0–100 for **fit** against my soft preferences. Sc
 Components:
 
 - **Skill / keyword match** — overlap between my target skills and the listing's title + description (word-boundary, case-insensitive).
+  `preferences.deprioritize_keywords` works in the opposite direction: a title matching one of
+  those terms is penalised on this component. It is the soft counterpart to `exclude_keywords` —
+  use it for domains that are usually wrong but occasionally right, so they sink rather than
+  disappear.
 - **Seniority fit** — distance from my target level *on the listing's track* (exact = full marks; unknown = neutral).
 - **Compensation** — how far the comparable annualized salary max exceeds my floor toward my target (unknown/incomparable salary = neutral, not zero).
 - **Location / remote fit** — preferred location or fully-remote scores higher than merely-allowed.
@@ -228,7 +243,11 @@ Produce the run's output as a human-readable digest plus a machine-readable file
   location/remote, salary (or "not listed"), score, the one-line reason, source link(s), and
   posted date. Unknown-field markers ("level unclear" etc.) appear inline. A header summarizes:
   N new, M previously shown, K below threshold, sources used, sources failed, filter tally, and
-  the active weight set.
+  the active weight set. Per-source contribution counters also appear here (05 §5.1).
+- **Stale-FX banner:** when `fx_rates.yaml` is 90 days or older, the digest carries a note giving
+  its age, and the run report records `fx_rates_stale_days`. Pinned rates are a deliberate
+  determinism choice (03 §Profile), so the only guard against silent drift is saying so out loud;
+  it never blocks a run.
 - **Digest size bound:** the "New this run" section shows at most `output.max_shown` entries
   (default 25); overflow is counted and available in the data file.
 - **Data file (JSON/CSV):** all scored survivors with full fields, for later tooling or a tracker.

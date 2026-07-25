@@ -67,7 +67,14 @@ on sources that *permit* programmatic access:
   job boards per company; ideal for target-company watchlists. Permitted and stable.
 - **Google Jobs via a paid SERP API** (e.g. SerpAPI) — broad coverage without scraping Google
   directly; a cost/coverage tradeoff to decide later.
-- **RSS/Atom job feeds** where boards publish them.
+- **Jooble API** — free key, aggregator with AU coverage; the second aggregator alongside Adzuna.
+- **Remotive / RemoteOK** — remote-only boards with public JSON, no credentials.
+- **RSS/Atom job feeds** where boards publish them (e.g. WeWorkRemotely) — see the per-feed
+  parsing options in 02 §Stage 1, which exist because RSS has no agreed job schema.
+
+**Rejected after evaluation:** Careerjet — the v4 API is built around a publisher relaying the
+*end user's* IP and user-agent, which a personal CLI cannot honestly supply. Jooble fills that
+slot. The general lesson: check an aggregator API's personal-use fit before writing the adapter.
 
 Principle: **prefer official APIs and permitted feeds; never build on access that breaks a
 site's terms.** Start with Adzuna + a couple of ATS company feeds; add sources as adapters later.
@@ -115,27 +122,28 @@ resort, behind the same gate.
 
 Each phase is independently useful and maps to functional-spec stages.
 
-**Phase 1 — Ingest + filter (the core value).**
+**Phase 1 — Ingest + filter (the core value).** *(built; the golden fixture corpus is
+still thin — see `IMPLEMENTATION_PLAN.md`)*
 Adzuna adapter → normalize (incl. seniority inference + salary/period parsing) → dedupe →
 hard filter → plain Markdown list. Profile drives queries and hard requirements.
 **Includes the golden fixture corpus and its test harness.**
 Deliverable: "run it, get a filtered list of real Sydney roles," with the filter tally. No scoring yet.
 
-**Phase 2 — Scoring + ranking.**
+**Phase 2 — Scoring + ranking.** *(built)*
 Add the weighted scorer with per-component reasons, the normalization rule, ranking, and the
 display threshold. Deliverable: the shortlist is now *ordered and explained*.
 
-**Phase 3 — Freshness + digest polish.**
+**Phase 3 — Freshness + digest polish.** *(built)*
 Seen-state with `content_hash` change detection, "New this run" vs "Previously shown" sections,
 the run report/tally, HTML digest, and the `dismiss`/`undismiss` CLI.
 Deliverable: re-running shows "0 new" with prior roles still reviewable; dismissals stick;
 a salary change re-surfaces a listing.
 
-**Phase 4 — More sources + scheduling.**
+**Phase 4 — More sources + scheduling.** *(built)*
 Add ATS company-feed adapters and/or a second API; wire up the scheduled weekday-morning run and
 a delivery mechanism.
 
-**Phase 5 — Operator tooling (`specs/05-operator-tooling.md`).**
+**Phase 5 — Operator tooling (`specs/05-operator-tooling.md`).** *(built)*
 Per-source contribution stats, offline `replay` re-scoring, and ATS board
 `probe`/`--check`. Deliverable: source value and calibration changes are
 measurable without a live run, and no board enters the watchlist unverified.

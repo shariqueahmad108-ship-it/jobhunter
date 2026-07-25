@@ -110,6 +110,9 @@ preferences:                     # STAGE 5 — soft scoring inputs
   preferred_locations: [string]
   salary_target:       number | null
   preferred_companies: [string]
+  deprioritize_keywords: [string]  # title terms (word-boundary, case-insensitive) that
+                                   #   PENALISE the skill_match sub-score — off-domain roles
+                                   #   sink instead of being dropped (02 §Stage 5)
   # NOTE: industry / company-size preferences are cut from v1 — no configured source provides
   # that data. Reintroduce only alongside an enrichment source (see 04 §Later).
 
@@ -123,6 +126,25 @@ weights:                         # STAGE 5 — relative; 0 disables a component;
   location_fit:   number
   company_signal: number
   recency:        number
+
+sources:                         # STAGE 1 — source activation. A source absent from this
+                                 #   block, or with enabled: false, is never fetched.
+  adzuna:    {enabled: boolean, country: string | null}   # env: ADZUNA_APP_ID/_APP_KEY
+  jooble:    {enabled: boolean}                            # env: JOOBLE_API_KEY
+  remotive:  {enabled: boolean, categories: [string]}
+  remoteok:  {enabled: boolean}
+  ats_watchlist:                 # public company job boards; no credentials
+    - ats:   enum(greenhouse, lever, ashby, workday)
+      slug:  string              # verify with `jobhunter probe` — never guess (05 §5.3)
+      name:  string | null       # display name
+      workday_path:     string | null    # workday only
+      workday_instance: int | null       # workday only
+  feeds:                         # any public RSS/Atom job feed
+    - name: string
+      url:  string
+      company_from_title: boolean | null  # feed puts "Company: Title" in <title> — split it
+      region_location:    boolean | null  # feed carries scope in <region>; parse it as the
+                                          #   location (WeWorkRemotely-style; 02 §Stage 2)
 
 search_mode: enum(active_unemployed, active_employed, passive_employed) | null
                                  # optional posture preset (see 02 §Search posture);
@@ -184,6 +206,8 @@ dropped:                         # the filter tally, for debugging criteria
   by_required:     number          # dropped for matching no require_keywords term
   by_age:          number
   dismissed:       number
+fx_rates_stale_days: number | null   # age of fx_rates.yaml when ≥ 90 days, else null;
+                                     #   surfaced as a digest banner (02 §Stage 7)
 below_threshold:   number        # passed everything, hidden by display_threshold
 shown_new:         number
 shown_previous:    number

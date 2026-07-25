@@ -61,6 +61,9 @@ preferences:                        # soft signals that influence ranking, not f
   preferred_companies:
     - "Atlassian"
     - "Canva"
+  deprioritize_keywords:            # soft counterpart to exclude_keywords: titles matching
+    - "sales"                       #   these sink on skill_match instead of being dropped
+    - "recruiter"
   # industry / company-size preferences: cut from v1 (no source provides the data) —
   # see specs/04-technical-plan.md §Decisions
 
@@ -76,8 +79,11 @@ sources:                            # unified source activation — a source abs
   adzuna: { enabled: true }         #   or enabled=false is never fetched
   # ats_watchlist:                  # company boards (greenhouse|lever|ashby|workday)
   #   - { ats: "greenhouse", slug: "gitlab", name: "GitLab" }
-  # feeds:                          # any public RSS/Atom job feed
+  # feeds:                          # any public RSS/Atom job feed. Optional per-feed parsing
   #   - { name: "myfeed", url: "https://example.com/jobs.rss" }
+  #                                 #   flags: company_from_title (feed packs "Company: Title"
+  #                                 #   into one element) and region_location (scope lives in
+  #                                 #   <region>) — both default off, parsing only.
   # remotive: { enabled: true, categories: ["devrel"] }
   # remoteok: { enabled: true }
   # jooble: { enabled: true }      # needs JOOBLE_API_KEY env var (free key)
