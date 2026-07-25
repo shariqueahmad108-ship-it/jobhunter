@@ -22,6 +22,7 @@ from pathlib import Path
 
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .pipeline import run as pipeline_run
+from .pipeline import run_with_snapshot as pipeline_run_with_snapshot
 from .profile import (
     ProfileError,
     effective_fx_rates,
@@ -206,7 +207,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     today = date.today().isoformat()
     dismissed = set(state.dismissed_ids)
-    results, report = pipeline_run(profile, adapters, dismissed_ids=dismissed)
+    keep_raw = bool(profile.get("output", {}).get("keep_raw", True))
+    if keep_raw:
+        results, report, pre_filter = pipeline_run_with_snapshot(
+            profile, adapters, dismissed_ids=dismissed
+        )
+    else:
+        results, report = pipeline_run(profile, adapters, dismissed_ids=dismissed)
+        pre_filter = None
 
     if _fx_age is not None and _fx_age >= _FX_STALE_DAYS:
         print(
@@ -238,6 +246,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # Filename stem: date, plus the profile name for non-default profiles so
     # same-day runs of different profiles never overwrite each other.
     slug = f"{today}-{slug_suffix}" if slug_suffix else today
+
+    # Write pre-filter snapshot when keep_raw is enabled (default true).
+    if keep_raw and pre_filter is not None:
+        from .snapshot import write_snapshot
+
+        snap_path = digest_dir / f"{slug}.raw.json"
+        try:
+            write_snapshot(snap_path, report.run_at, profile, pre_filter)
+            print(f"Snapshot: {snap_path}", file=sys.stderr)
+        except OSError as e:
+            print(f"Warning: could not write snapshot {snap_path}: {e}", file=sys.stderr)
 
     # Write data file(s) in the configured format(s).
     if data_fmt in ("json", "both"):
@@ -404,6 +423,168 @@ def _cmd_sources(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_diff(
+    current: list,
+    other: list,
+) -> None:
+    """Print a textual diff between two replay shortlists."""
+    current_map = {r.listing.id: r for r in current}
+    other_map = {r.listing.id: r for r in other}
+
+    entered = [r for lid, r in current_map.items() if lid not in other_map]
+    left = [r for lid, r in other_map.items() if lid not in current_map]
+    moved = []
+    for lid, c in current_map.items():
+        if lid in other_map:
+            o = other_map[lid]
+            if abs(c.score - o.score) > 0.01 or c.rank != o.rank:
+                moved.append((c, o))
+
+    print("\n=== Diff (current vs other) ===")
+    print(f"Entered (now shown, wasn't): {len(entered)}")
+    for r in entered[:20]:
+        print(f"  #{r.rank}  {r.listing.title} @ {r.listing.company}  (score: {r.score:.0f})")
+    print(f"Left (was shown, not now): {len(left)}")
+    for r in left[:20]:
+        print(f"  #{r.rank}  {r.listing.title} @ {r.listing.company}  (score: {r.score:.0f})")
+    print(f"Moved (rank/score changed): {len(moved)}")
+    for c, o in moved[:20]:
+        print(
+            f"  {c.listing.title} @ {c.listing.company}"
+            f"  (was #{o.rank}/{o.score:.0f}, now #{c.rank}/{c.score:.0f})"
+        )
+
+
+def _replay_shortlist(
+    snap: dict,
+    profile: dict,
+    dismissed: set,
+) -> tuple:
+    """Re-run Stages 4-7 on a snapshot's listing set. No network access."""
+    from datetime import date as _date
+
+    from .filter import run as filter_run
+    from .model import RunReport
+    from .rank import run as rank_run
+    from .score import run as score_run
+
+    run_date = _date.fromisoformat(snap["run_at"][:10])
+    listings = snap["listings"]
+
+    filter_result = filter_run(listings, profile, dismissed_ids=dismissed, today=run_date)
+    tally = filter_result.tally
+    scored = score_run(
+        filter_result.passed,
+        profile,
+        unknown_flags=filter_result.unknown_flags,
+        today=run_date,
+    )
+    shortlist, below_threshold = rank_run(scored, profile)
+
+    weights_cfg: dict = profile.get("weights", {})
+    active_weights = {k: float(v) for k, v in weights_cfg.items() if float(v) > 0}
+
+    sources_used = sorted({s.name for listing in listings for s in listing.sources})
+
+    report = RunReport(
+        run_at=snap["run_at"],
+        sources_used=sources_used,
+        requests_made=0,
+        ingested_count=len(listings),
+        after_dedupe=len(listings),
+        dropped_by_location=tally.by_location,
+        dropped_by_seniority=tally.by_seniority,
+        dropped_by_salary=tally.by_salary,
+        dropped_by_employment=tally.by_employment,
+        dropped_by_keyword=tally.by_keyword,
+        dropped_by_required=tally.by_required,
+        dropped_by_age=tally.by_age,
+        dropped_dismissed=tally.dismissed,
+        below_threshold=below_threshold,
+        shown_new=len(shortlist),
+        active_weights=active_weights,
+    )
+    return shortlist, report
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    from .snapshot import apply_set_overrides, load_snapshot
+
+    try:
+        snap = load_snapshot(Path(args.run_file))
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine profile: explicit --profile wins, else use the stored snapshot.
+    if args.profile:
+        try:
+            profile = load_profile(Path(args.profile))
+        except ProfileError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    else:
+        profile = snap["profile_snapshot"]
+
+    # Apply --set overrides
+    if args.set:
+        profile = apply_set_overrides(profile, args.set)
+
+    # Load state for dismissed_ids — replay is strictly read-only.
+    state_path = Path(args.state)
+    try:
+        state = load_state(state_path)
+    except ValueError as e:
+        print(f"Error loading state: {e}", file=sys.stderr)
+        return 1
+    dismissed = set(state.dismissed_ids)
+
+    shortlist, report = _replay_shortlist(snap, profile, dismissed)
+
+    # --diff: compare against another snapshot replayed with the same settings.
+    if args.diff:
+        try:
+            other_snap = load_snapshot(Path(args.diff))
+        except ValueError as e:
+            print(f"Error loading diff file: {e}", file=sys.stderr)
+            return 1
+
+        if args.profile:
+            other_profile = load_profile(Path(args.profile))
+        else:
+            other_profile = other_snap["profile_snapshot"]
+        if args.set:
+            other_profile = apply_set_overrides(other_profile, args.set)
+
+        other_shortlist, _ = _replay_shortlist(other_snap, other_profile, dismissed)
+        _print_diff(shortlist, other_shortlist)
+
+    # Render the replay digest (no new/prev split — all results shown together).
+    output_cfg = profile.get("output", {})
+    max_shown = int(output_cfg.get("max_shown", 25))
+
+    md = render_markdown(
+        shortlist,
+        report,
+        previously_seen=None,
+        max_shown=max_shown,
+        show_previously_seen=False,
+    )
+
+    if args.out:
+        try:
+            out_path = Path(args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(md, encoding="utf-8")
+            print(f"Replay digest: {args.out}", file=sys.stderr)
+        except OSError as e:
+            print(f"Warning: could not write {args.out}: {e}", file=sys.stderr)
+    else:
+        print(md)
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jobhunter",
@@ -488,6 +669,48 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON instead of a table.",
     )
     sources_p.set_defaults(func=_cmd_sources)
+    replay_p = sub.add_parser(
+        "replay",
+        help="Re-run Stages 4-7 offline from a saved snapshot (no network access).",
+    )
+    replay_p.add_argument(
+        "run_file",
+        metavar="RUN-FILE",
+        help="Path to a .raw.json snapshot written by a previous run.",
+    )
+    replay_p.add_argument(
+        "--profile",
+        default=None,
+        metavar="PATH",
+        help="Alternate profile to use instead of the snapshot's stored profile.",
+    )
+    replay_p.add_argument(
+        "--set",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help="Override a profile setting (dot-path, e.g. output.display_threshold=65). "
+        "May be repeated.",
+    )
+    replay_p.add_argument(
+        "--diff",
+        default=None,
+        metavar="RUN-FILE",
+        help="Compare against another snapshot file and report entered/left/moved listings.",
+    )
+    replay_p.add_argument(
+        "--out",
+        default=None,
+        metavar="FILE",
+        help="Write the replay digest to FILE instead of stdout.",
+    )
+    replay_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file for dismissed ids (default: {_DEFAULT_STATE})",
+    )
+    replay_p.set_defaults(func=_cmd_replay)
 
     return parser
 

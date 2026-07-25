@@ -455,6 +455,8 @@ def _validate_output(output: dict) -> None:
             raise ProfileError("output.max_shown: expected number")
     if "show_previously_seen" in output:
         _expect_type(output["show_previously_seen"], bool, "output.show_previously_seen")
+    if "keep_raw" in output:
+        _expect_type(output["keep_raw"], bool, "output.keep_raw")
     if "format" in output:
         if output["format"] not in _OUTPUT_FORMATS:
             raise ProfileError(
