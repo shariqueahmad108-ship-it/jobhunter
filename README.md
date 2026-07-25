@@ -1,123 +1,180 @@
-# JobHunter — Spec Pack
+<!-- SPDX-License-Identifier: Apache-2.0
+     https://www.apache.org/licenses/LICENSE-2.0 -->
 
-A spec-driven project to build an AI-assisted tool that **finds and filters jobs** for me
-(Justin), so I spend my time on the handful of roles worth applying to instead of scrolling
-job boards.
+# JobHunter
 
-This folder contains the **specification first**. Nothing is built yet — the specs are the
-source of truth, and the implementation will be generated from them.
+A personal, spec-driven job-search pipeline. It fetches listings from job
+boards and company ATS boards, drops the ones that fail your hard
+requirements, scores the survivors against your profile, and writes a ranked
+digest — so you review a short list instead of scrolling job sites.
 
-## How this pack is organized
+Everything that makes the tool *yours* lives in one file, `profile.yaml`.
+There is nothing person-specific in the code.
 
-| File | Purpose |
-|------|---------|
-| `README.md` | This overview + the workflow for turning specs into code. |
-| `specs/01-product-spec.md` | Why the tool exists: vision, users, goals, non-goals, qualitative success criteria. |
-| `specs/02-functional-spec.md` | What it does: pipeline behaviors, unknown-data policy, scoring model, user stories, testable acceptance criteria. |
-| `specs/03-data-model.md` | The shapes: job listing, profile/criteria (with required fields + defaults), scored result, run state, run report. |
-| `specs/04-technical-plan.md` | How it gets built: resolved decisions, data sources, architecture, fixture corpus, regeneration policy, phased roadmap, open questions. |
-| `specs/profile.example.yaml` | A fill-in-the-blanks template of my job criteria that drives filtering. |
-| `IMPLEMENTATION_PLAN.md` | Prioritised work items (the gaps) the build loop implements one at a time. |
-| `AGENTS.md` | Operational rules for the loop: repo map, validation commands, branch + hard limits. |
-| `tools/spec-loop/` | The spec-driven build loop (Ralph-style) that reconciles the code against the specs. |
+- Deterministic, rule-based scoring — no LLM in the pipeline, so the same
+  inputs always produce the same digest and every score is explainable.
+- Unknown data is kept and marked, never silently dropped.
+- Stateless between runs apart from a small state file: what you have already
+  been shown, and what you have dismissed.
 
-**Location policy:** remote work is **preferred via scoring, not hard-filtered**
-— configured (not hardcoded) in `profile.yaml` via `remote_policy: any` with a
-high `location_fit` weight. Rationale: source data (Adzuna) tags roles by
-suburb and company HQ, so location-based hard filtering dropped genuinely
-remote roles; scoring floats remote to the top while keeping everything
-reviewable. (See `02-functional-spec.md` §Stage 4 for the filter semantics
-that remain available.)
+## Quick start
 
-## The spec-driven workflow
+```bash
+git clone <this repo> && cd JobHunter
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-1. **Write the spec** (this pack). Keep it the single source of truth.
-2. **Review & lock scope.** Resolve the open questions in `04-technical-plan.md` before building the affected phase (each is tagged with the phase it blocks).
-3. **Fill in `profile.yaml`** (copy from `specs/profile.example.yaml`) — this is the config that makes "filter" mean something concrete.
-4. **Build the golden fixture corpus** (Phase 1 deliverable, `04-technical-plan.md` §Fixtures) — real listings with expected outcomes at every stage. This is the loop's backpressure.
-5. **Run the loop to build**, phase by phase. `git init` first, then:
-   - `./tools/spec-loop/loop.sh plan` turns the specs into a prioritised `IMPLEMENTATION_PLAN.md`.
-   - `./tools/spec-loop/loop.sh build 1` implements the top work item on its own branch, validates it with `pytest`, and stops at a local commit (it never pushes — that's your step).
-   - Repeat, reviewing each branch. See `tools/spec-loop/README.md`.
-6. **Check work against acceptance criteria** in `02-functional-spec.md` — a feature is "done" only when its criteria pass against the fixture corpus (the loop runs these as `pytest`).
-7. **Amend the spec, not the code, when requirements change.** Then re-run `plan` and `build` — regeneration is **per stage, gated by the fixture tests** (see `04-technical-plan.md` §Regeneration policy), never an ungated full rewrite. If code lands outside the loop, `./tools/spec-loop/loop.sh update` back-fills the specs.
+cp specs/profile.example.yaml profile.yaml   # then edit it — this is the whole config
+export ADZUNA_APP_ID=... ADZUNA_APP_KEY=...  # free key: https://developer.adzuna.com
 
-## Scheduled runs (weekday-morning digest)
+jobhunter run
+```
 
-Run `jobhunter run` on a schedule using `cron` (macOS/Linux) or any task
-scheduler. The tool is stateless between runs — the state file records what has
-been shown; everything else is re-fetched from sources.
+The digest lands in `digests/YYYY-MM-DD.md` (plus a `.json` companion).
+`profile.yaml` is git-ignored — your criteria stay out of the repo.
 
-### File locations (defaults)
+## Commands
+
+| Command | What it does |
+|---|---|
+| `jobhunter run` | The pipeline: ingest → normalize → dedupe → filter → score → rank → digest. |
+| `jobhunter dismiss <id> [<id>...]` | Permanently hide listings from future digests. |
+| `jobhunter undismiss <id>` | Restore a dismissed listing. |
+| `jobhunter dismissed` | List currently dismissed ids. |
+| `jobhunter sources [--last N] [--json]` | Per-source contribution stats across runs — which sources actually earn their requests. |
+| `jobhunter replay RUN-FILE [--set K=V] [--diff OTHER]` | Re-score a saved run offline, with no network calls. |
+| `jobhunter probe URL_OR_SLUG` / `probe --check` | Detect which ATS a company careers page uses, or re-check every board in your watchlist. |
+
+`replay` is the one to reach for when tuning: run once, then replay the same
+snapshot with different weights or thresholds and `--diff` the shortlists.
+
+## Sources
+
+Enabled per-source in `profile.yaml` under `sources:` — anything absent or
+`enabled: false` is never fetched.
+
+| Source | Notes |
+|---|---|
+| Adzuna | Aggregator. Needs `ADZUNA_APP_ID` + `ADZUNA_APP_KEY`. |
+| Jooble | Aggregator. Needs `JOOBLE_API_KEY`. |
+| Remotive, RemoteOK | Remote-only boards. No key. |
+| ATS watchlist | Greenhouse, Lever, Ashby and Workday boards, by company slug. No key. Use `jobhunter probe` to find slugs. |
+| RSS/Atom feeds | Any public job feed, by URL. |
+
+Company ATS boards are usually the highest-signal source: they are the
+employer's own listings, fresh and unduplicated. Aggregators give breadth.
+Check `jobhunter sources` after a few runs and turn off whatever is not
+contributing.
+
+## Configuration
+
+`specs/profile.example.yaml` is the annotated template; `specs/03-data-model.md`
+is the schema of record. The profile is validated on load, so typos fail loudly
+rather than silently changing what you see. The main blocks:
+
+- `identity` — target skills, and one or more target tracks/levels. Seniority
+  is dual-track: an IC ladder and a management ladder, scored independently, so
+  a senior-engineer target does not accidentally match a director role.
+- `queries` — the only source of search terms, plus per-run request caps.
+- `hard_requirements` — the filters. Remote policy, excluded locations,
+  seniority bounds, salary floor (with pinned FX rates for cross-currency
+  comparison), excluded keywords scoped to title or full text, max listing age.
+- `preferences` / `weights` — soft signals and their relative importance.
+  Score is `100 × Σ(w·sub)/Σ(w)` over active weights, so zeroing one component
+  rescales the rest — recheck `output.display_threshold` after changing weights.
+- `sources`, `search_mode`, `output` — activation, search-posture preset, and
+  digest formatting.
+
+Multiple profiles are supported: pass `--profile profile-<name>.yaml` and the
+state and digest filenames are namespaced automatically.
+
+### Filtering vs. scoring
+
+Hard requirements drop listings; everything else only moves them up or down the
+ranking. Prefer scoring over filtering for anything the source data reports
+unreliably — location especially. Aggregators tag roles by suburb or company
+HQ, so hard-filtering on location drops genuinely remote roles. A high
+`location_fit` weight floats the right ones to the top while keeping the rest
+reviewable. (`02-functional-spec.md` §Stage 4 covers the filter semantics that
+remain available.)
+
+### Files and paths
 
 | Path | Contents | Override |
-|------|----------|----------|
-| `profile.yaml` | Your search criteria | `--profile PATH` |
-| `state/state.yaml` | Seen-state + dismissals | `--state PATH` |
-| `digests/YYYY-MM-DD.md` | Markdown digest for the day | `--output-dir DIR` |
-| `digests/YYYY-MM-DD.json` | Machine-readable companion | same `--output-dir DIR` |
+|---|---|---|
+| `profile.yaml` | Your criteria (git-ignored) | `--profile PATH` |
+| `state/state.yaml` | Seen state + dismissals | `--state PATH` |
+| `digests/YYYY-MM-DD.{md,json}` | The day's digest | `--output-dir DIR` |
+| `state/source_stats.json` | Per-source counters over time | follows `--state` |
+| `digests/YYYY-MM-DD.raw.json` | Pre-filter snapshot for `replay`, when `output.keep_raw` is on | follows `--output-dir` |
 
-Multi-profile runs use a per-profile state file and per-profile digest filenames
-automatically (`state-profile-ospo.yaml`, `2026-07-23-profile-ospo.md`, etc.).
+Keys go in a git-ignored `.env` or your OS keychain — never in `profile.yaml`.
 
-### Environment variables
+## Scheduled runs
 
-The Adzuna adapter requires:
-
-```
-ADZUNA_APP_ID=<your id>
-ADZUNA_APP_KEY=<your key>
-```
-
-Store these in a git-ignored `.env` and source it in your cron wrapper, or use
-your OS keychain / secret manager.
-
-### Example crontab (weekday mornings at 07:30)
-
-```cron
-# JobHunter — weekday digest at 07:30
-30 7 * * 1-5 cd /path/to/JobHunter && \
-  ADZUNA_APP_ID=xxx ADZUNA_APP_KEY=yyy \
-  python -m jobhunter run \
-    --profile profile.yaml \
-    --state state/state.yaml \
-    --output-dir digests \
-  >> logs/jobhunter.log 2>&1
-```
-
-Or use a wrapper script that sources `.env`:
+Run on whatever scheduler you have. A wrapper that sources secrets is the
+simplest approach:
 
 ```bash
 #!/usr/bin/env bash
-# run-jobhunter.sh — source secrets then run the pipeline
+# run-jobhunter.sh
 set -euo pipefail
 cd "$(dirname "$0")"
-source .env
-python -m jobhunter run --output-dir digests "$@"
+set -a; source .env; set +a
+python3 -m jobhunter run --output-dir digests "$@"
 ```
 
 ```cron
+# weekday mornings at 07:30
 30 7 * * 1-5 /path/to/JobHunter/run-jobhunter.sh >> /path/to/JobHunter/logs/jobhunter.log 2>&1
 ```
 
-### Suggested cadences (from `search_mode` presets)
+Cadence follows your `search_mode`: `active_unemployed` daily,
+`active_employed` each weekday, `passive_employed` weekly. The active preset is
+printed in each digest header.
 
-| `search_mode` | Cadence |
+## How the project is built
+
+JobHunter is spec-driven: `specs/` is the source of truth, and the code is
+reconciled against it by a build loop rather than edited ad hoc.
+
+| Path | Purpose |
 |---|---|
-| `active_unemployed` | Daily |
-| `active_employed` | Each weekday |
-| `passive_employed` | Weekly |
+| `specs/01-product-spec.md` | Why the tool exists: goals, non-goals, success criteria. |
+| `specs/02-functional-spec.md` | What it does: stage behaviours, unknown-data policy, scoring model, acceptance criteria. |
+| `specs/03-data-model.md` | The shapes: listing, profile, scored result, run state, run report. |
+| `specs/04-technical-plan.md` | How it is built: decisions, sources, architecture, fixtures, regeneration policy. |
+| `specs/05-operator-tooling.md` | Maintenance surface: source stats, run snapshot/replay, ATS probe. |
+| `specs/profile.example.yaml` | Annotated profile template. |
+| `IMPLEMENTATION_PLAN.md` | Prioritised work items the loop implements one at a time. |
+| `AGENTS.md` | Operational rules for the loop: repo map, validation commands, branch limits. |
+| `tools/spec-loop/` | The build loop itself. |
 
-Set `search_mode` in `profile.yaml`; the tool prints which preset is active in
-each digest header.
+The workflow: amend the spec, not the code, when requirements change; then
+`./tools/spec-loop/loop.sh plan` re-derives the work items and
+`./tools/spec-loop/loop.sh build 1` implements the top one on its own branch,
+validated by `pytest`, stopping at a local commit. It never pushes. If code
+lands outside the loop, `loop.sh update` back-fills the specs. See
+`tools/spec-loop/README.md`.
+
+Regeneration is per stage and gated by the fixture corpus — never an ungated
+rewrite.
+
+## Development
+
+```bash
+python3 -m pytest -q          # full suite
+ruff check src tests
+```
+
+A change to a pipeline stage must add or extend that stage's test module.
 
 ## Status
 
-- [x] Spec pack drafted
-- [x] Build loop implemented (`tools/spec-loop/`)
-- [x] Spec review applied (2026-07-22): unknown-data policy, dual-track seniority + inference, currency/period comparison, scoped deal-breakers, `exclude_locations` + remote-only location policy, content-hash change detection, seen-vs-dismissed rework, CLI dismissals, score normalization rule, employment filter, fixture corpus + per-stage regeneration policy; industry/size scoring cut from v1; scoring locked rule-based/deterministic
-- [x] Phase 0–1 (scaffold + ingest + filter) built
-- [x] Phase 2 (scoring + ranking) built
-- [x] Phase 3 (freshness + digest + dismiss CLI) built
-- [ ] Golden fixture corpus captured (in progress)
-- [ ] ATS company-watchlist adapter (in progress)
+Phases 0–5 are built: the pipeline runs end to end, with digests, dismissals,
+multi-profile support, source contribution stats, offline replay and ATS
+probing. In progress: expanding the golden fixture corpus.
+
+## License
+
+Apache-2.0 (see the SPDX headers on source files).
