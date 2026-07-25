@@ -4,72 +4,52 @@
 # Implementation Plan — JobHunter
 
 Prioritised **work items** the `build` beat implements one at a time. One work
-item = one branch = one PR. Regenerated 2026-07-24: ALL previously planned
-work items are built AND MERGED to main (full suite green 2026-07-24) —
-there are currently NO open work items for the loop.
+item = one branch = one PR.
 
 REMINDER (AGENTS.md): build iterations never modify files under `specs/`.
 
-## What's been built (merged to main, verified on live data 2026-07-23)
+## Status — 2026-07-25
 
-Pipeline stages 1–7 end-to-end with two live profiles. Sources: Adzuna +
-ATS company watchlist (Greenhouse/Lever/Ashby/Workday), RSS/Atom feeds,
-Remotive, RemoteOK, Careerjet — ALL activated per profile via the unified
-`sources:` block and constructed by `cli._build_adapters(profile)`
-(`sources-reconciliation`, commit 5428c09; `queries.ats_watchlist` retains a
-deprecated fallback). Filtering calibrated against real runs:
-`require_keywords` domain anchors, `remote_countries_allowed`, hardened
-location parsing (hub cities extract as cities, e.g. "London, UK"),
-word-boundary location matching, skill-match saturation, adaptive remote
-detection, search-mode presets, multi-profile state/digest isolation,
-overflow-not-seen, golden fixture corpus, Adzuna 429 backoff, CSV export,
-global `fx_rates.yaml` with staleness warning (>90 days → stderr + digest
-note), title geo-hint flags for bare-Remote listings, and the hybrid_ok
-remote-country drop (a "remote (US only)" role is dropped for an AU-bound
-profile even under hybrid_ok).
+Single branch `main` at `e11881c`. Nothing in flight: no work branches, no
+stashes, no unfinished work anywhere. Pipeline stages 1–7 run end to end on
+two live profiles; `git log` is the record of what was built and why.
 
-2026-07-23 evening loop run (reviewed and merged to main 2026-07-24, merge
-commits 9cb6545 / 961cd0b / 576d74c; all work branches deleted):
-
-- `karynne-source-config` (d03e960): workday_path/workday_instance profile
-  validation to match the ATS adapter; sibling tests migrated from
-  `queries.*` to `sources:`; end-to-end adapter-construction tests for
-  feeds/remotive/remoteok/careerjet/workday; hub-city parsing fix;
-  live-profile smoke tests (skip when the git-ignored profiles are absent).
-- `title-geo-restrictions` (2702706): flag-only title geo hints
-  ("remote scope: title hints EMEA") + the hybrid_ok remote-country drop.
-- `fx-staleness-warning` (b27a8b7): fx_rates.yaml mtime check.
-
-Lessons encoded: adapter work items need one end-to-end criterion ("X
-configured shows X in sources_used"); work items sharing a config surface
-must be sequential or given an explicit contract up front.
+Suite last confirmed green 2026-07-24 (`python3 -m pytest -q` — the bare
+`python` on this machine is 2.7). Re-run it before the next build iteration.
 
 ## Work items (priority order)
 
-NONE. Do not re-plan items for anything listed above — in particular do NOT
-recreate `sources-reconciliation`, `karynne-source-config`,
-`title-geo-restrictions`, or `fx-staleness-warning`; they are done. New items
-come only from new spec amendments or new calibration findings.
+NONE. New items come only from new spec amendments or new calibration
+findings from live runs.
+
+Do not re-plan anything already in `git log`. In particular:
+
+- Careerjet was **removed on purpose** (f9b6abc — the v4 API's
+  publisher/end-user-IP model doesn't fit a personal CLI). Do not re-add it;
+  Jooble is the aggregator in its place.
+- The Red Hat / Atlassian / HashiCorp Workday boards were dropped because
+  they don't serve the JSON endpoint the adapter expects. Do not re-add a
+  Workday entry without a board URL verified to return JSON.
+
+Lessons encoded: adapter work items need one end-to-end criterion ("X
+configured shows X in sources_used"); work items sharing a config surface
+must be sequential or given an explicit contract up front; check an
+aggregator API's personal-use fit BEFORE writing the adapter.
 
 ## Manual follow-ups (USER-side; not loop work items — do not build these)
 
-These need human accounts, registrations, or judgment; the loop must skip
-them:
-
-- Karynne / Careerjet: register a free affiliate id (careerjet.com.au partner
-  signup), set `CAREERJET_AFFILIATE_ID` in the env, uncomment `careerjet:` in
-  profile-karynne.yaml.
-- I Work for NSW: VERIFIED 2026-07-23 — publishes NO RSS/Atom feed (homepage
-  and /jobs checked; Taleo-backed). The feed option is dead; do not add a
-  guessed URL.
+- Jooble: register a free key at jooble.org/api/about and export
+  `JOOBLE_API_KEY` — `sources.jooble` is already on in profile-karynne.yaml
+  and does nothing without it.
+- I Work for NSW: VERIFIED 2026-07-23 — no RSS/Atom feed (Taleo-backed). Dead
+  option; never add a guessed URL.
 - Karynne / hospitality ATS watchlist: add entries only with slugs verified
-  from real careers-page URLs (HelloFresh AU etc.).
-- Justin / optional sources: enable `remotive` (devrel category); add
-  WeWorkRemotely + fossjobs.net feeds and Workday entries (Red Hat /
-  Atlassian / HashiCorp) only after verifying real URLs/slugs from the
-  careers pages — never guess.
+  from real careers-page URLs.
+- Justin / optional sources: `remotive` (devrel), fossjobs.net feed,
+  replacement Workday entries — only from verified URLs/slugs.
+- Recurring local cleanup: `rm -rf _to_delete && git gc --prune=now`.
 
 Explicitly out (documented): LinkedIn (no public API; ToS), direct Seek
 (partner-only; partial inventory via aggregators), private RTO careers pages
-(no standard feeds). Paid Google-Jobs SERP API remains the documented
-fallback if free coverage proves insufficient once the new sources are live.
+(no standard feeds), Careerjet (API model incompatible). Paid Google-Jobs SERP
+API remains the documented fallback if free coverage proves insufficient.
