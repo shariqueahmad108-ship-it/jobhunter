@@ -90,9 +90,20 @@ site's terms.** Start with Adzuna + a couple of ATS company feeds; add sources a
 - **Config:** YAML (`profile.yaml`) validated against a schema on load (fail loud on typos).
 - **HTTP:** `httpx` with retries + per-source rate limiting + the `max_requests_per_run` cap.
 - **State:** a local JSON or SQLite file for seen/dismissed state, with `schema_version`.
-- **CLI:** one entry point (`jobhunter run`, `jobhunter dismiss <id>`, `jobhunter undismiss <id>`,
-  `jobhunter dismissed`).
-- **Output:** Markdown digest (renders anywhere) + JSON data file; optional HTML for a nicer read.
+- **CLI:** one entry point with sub-commands:
+  `jobhunter run [--profile PATH] [--state PATH] [--output-dir DIR]`,
+  `jobhunter dismiss <id>`, `jobhunter undismiss <id>`, `jobhunter dismissed`,
+  `jobhunter sources [--profile P] [--last N] [--json]`,
+  `jobhunter replay <run-file> [--profile P] [--set k=v] [--diff <file>] [--out FILE]`,
+  `jobhunter probe [URL|slug] [--ats TYPE] [--check] [--profile P]`.
+  `--output-dir` overrides the default output directory (`digests/` peer to the state dir).
+- **Multi-profile namespacing:** when a non-default profile file is used (e.g.
+  `profile-ospo.yaml`), the run command automatically namespaces all per-profile files by the
+  profile's stem: state → `state-ospo.yaml`, source stats → `source_stats-ospo.json`, digest
+  and data files → `YYYY-MM-DD-ospo.md/.json`. This keeps independent profiles from sharing
+  seen-state or overwriting each other's output.
+- **Output:** Markdown digest (renders anywhere) + JSON/CSV data file; optional HTML for a
+  nicer read. Output format controlled by `output.format`; data format by `output.data_format`.
 - **Scheduling:** a scheduled task / cron for the "weekday morning digest" mode.
 - **Tests:** each pipeline stage unit-tested against the golden fixture corpus; the acceptance
   criteria in `02-functional-spec.md` become the test checklist.

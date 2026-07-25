@@ -156,6 +156,8 @@ output:
   max_shown:            number   # default 25; cap on "New this run" section
   show_previously_seen: boolean  # default true; render the "Previously shown" section
   format:               enum(markdown, html, both)   # default markdown
+  data_format:          enum(json, csv, both)         # default json; controls the machine-readable
+                                 #   data file format written alongside the digest
   keep_raw:             boolean  # default true; persist the pre-filter snapshot that
                                  #   `jobhunter replay` re-scores offline (05 §5.2)
 ```
@@ -212,6 +214,9 @@ below_threshold:   number        # passed everything, hidden by display_threshol
 shown_new:         number
 shown_previous:    number
 active_weights:    map<string, number>   # so threshold changes are interpretable
+search_mode:       string | null  # active posture preset name, or null; shown in digest header
+source_stats:      [SourceStat]   # per-source counters (see §Source stats); carried
+                                  #   in-memory so the CLI can persist them after render
 ```
 
 ## Source stats (persisted per run; see 05 §5.1)

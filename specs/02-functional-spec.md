@@ -249,8 +249,10 @@ Produce the run's output as a human-readable digest plus a machine-readable file
   determinism choice (03 §Profile), so the only guard against silent drift is saying so out loud;
   it never blocks a run.
 - **Digest size bound:** the "New this run" section shows at most `output.max_shown` entries
-  (default 25); overflow is counted and available in the data file.
+  (default 25); overflow is counted and available in the data file. Overflow entries are **not**
+  recorded as seen — they remain eligible and resurface in the next run's "New this run" section.
 - **Data file (JSON/CSV):** all scored survivors with full fields, for later tooling or a tracker.
+  Format controlled by `output.data_format` (json | csv | both; default json).
 - **Seen-state:** record `(id, content_hash)` for every listing shown. A listing re-enters
   "New this run" only if its stored `content_hash` differs from the current one — this is the
   definition of **materially changed** (title, salary, location, or description changed; source
