@@ -10,30 +10,19 @@ REMINDER (AGENTS.md): build iterations never modify files under `specs/`.
 
 ## Status — 2026-07-25
 
-Single branch `main`. Phases 0–5 are built: stages 1–7 run end to end on two
-live profiles, plus source contribution stats, run snapshot + offline replay,
-and the ATS probe. `git log` is the record of what was built and why — this
-file only carries what is still open.
+Single branch `main`. Phases 0–5 are built: stages 1–7 run end to end, plus
+source contribution stats (05 §5.1), offline replay (05 §5.2), and the ATS
+probe (05 §5.3). 1252 tests pass (`python3 -m pytest -q`).
 
 Re-run `python3 -m pytest -q` before the next build iteration (the bare
 `python` on this machine is 2.7).
 
 ## Work items (priority order)
 
-### 1. Golden fixture corpus — spec 04 §Fixtures
-
-The Phase 1 deliverable is still thin. Every stage's regeneration gate depends
-on it, so this is the highest-value remaining work.
-
-- Real listings with expected outcomes at every stage, covering: unknown
-  salary, unknown location, unknown seniority, cross-currency salaries, both
-  seniority tracks, and a duplicate spanning two sources.
-- **Validation:** `python3 -m pytest -q`.
-- **End-to-end criterion:** each pipeline stage has at least one fixture that
-  fails if that stage's rules change.
-
-No other work items are queued. Run `./tools/spec-loop/loop.sh plan` to derive
-the next batch from the specs, or add items here by hand.
+None queued. Phases 0–5 are built and the golden fixture corpus expansion
+(spec 04 §Fixtures — 30 entries plus Stage 6/7 corpus acceptance tests) is
+merged. Run `./tools/spec-loop/loop.sh plan` to derive the next batch from the
+specs, or add items here by hand.
 
 ## Guardrails (do not re-plan these)
 
