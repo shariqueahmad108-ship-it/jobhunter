@@ -20,6 +20,21 @@ from jobhunter.rank import run as rank_run
 from jobhunter.score import run as score_run
 
 
+def run_with_snapshot(
+    profile: dict,
+    adapters: list[SourceAdapter],
+    dismissed_ids: Optional[set[str]] = None,
+    today: Optional[date] = None,
+) -> tuple[list[ScoredResult], RunReport, list[JobListing]]:
+    """Like run() but also returns the pre-filter listing set for snapshot writing.
+
+    Returns:
+        (shortlist, report, pre_filter) — pre_filter is post-dedupe, pre-Stage-4.
+    """
+    shortlist, report, pre_filter = _run_internal(profile, adapters, dismissed_ids, today)
+    return shortlist, report, pre_filter
+
+
 def run(
     profile: dict,
     adapters: list[SourceAdapter],
@@ -37,6 +52,17 @@ def run(
     Returns:
         (shortlist, report) — shortlist is ranked, at-or-above-threshold ScoredResults.
     """
+    shortlist, report, _ = _run_internal(profile, adapters, dismissed_ids, today)
+    return shortlist, report
+
+
+def _run_internal(
+    profile: dict,
+    adapters: list[SourceAdapter],
+    dismissed_ids: Optional[set[str]] = None,
+    today: Optional[date] = None,
+) -> tuple[list[ScoredResult], RunReport, list[JobListing]]:
+    """Core pipeline implementation; returns (shortlist, report, pre_filter)."""
     run_at = datetime.now(timezone.utc).isoformat()
     queries = profile["queries"]
     keywords: list[str] = queries["keywords"]
@@ -163,4 +189,4 @@ def run(
         search_mode=profile.get("search_mode"),
     )
 
-    return shortlist, report
+    return shortlist, report, deduped

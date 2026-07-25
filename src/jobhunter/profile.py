@@ -437,7 +437,14 @@ def _validate_weights(weights: dict) -> None:
 def _validate_output(output: dict) -> None:
     _unknown_keys(
         output,
-        {"display_threshold", "max_shown", "show_previously_seen", "format", "data_format"},
+        {
+            "display_threshold",
+            "max_shown",
+            "show_previously_seen",
+            "format",
+            "data_format",
+            "keep_raw",
+        },
         "output",
     )
     if "display_threshold" in output:
@@ -448,6 +455,8 @@ def _validate_output(output: dict) -> None:
             raise ProfileError("output.max_shown: expected number")
     if "show_previously_seen" in output:
         _expect_type(output["show_previously_seen"], bool, "output.show_previously_seen")
+    if "keep_raw" in output:
+        _expect_type(output["keep_raw"], bool, "output.keep_raw")
     if "format" in output:
         if output["format"] not in _OUTPUT_FORMATS:
             raise ProfileError(
@@ -582,6 +591,7 @@ def load_profile(path: str | Path) -> dict:
     out.setdefault("show_previously_seen", True)
     out.setdefault("format", "markdown")
     out.setdefault("data_format", "json")
+    out.setdefault("keep_raw", True)
 
     raw.setdefault("sources", {})
 
