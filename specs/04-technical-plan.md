@@ -20,8 +20,9 @@ Formerly open questions, now locked into the specs:
 4. **Query terms have one owner.** `queries.keywords` is the only source of search terms;
    `identity.target_titles` was removed from the profile (titles belong in `queries.keywords`,
    skills in `identity.target_skills`).
-5. **Location policy: remote-only, excluding Sydney-based roles.** Configured, not hardcoded:
-   `remote_policy: remote_only` + `exclude_locations: [Sydney]` + `locations_allowed: []`
+5. **Location policy is configured, not hardcoded.** The combination
+   `remote_policy` + `exclude_locations` + `locations_allowed` expresses any policy
+   (e.g. remote-only while excluding "remote, but must be local to X" postings)
    (semantics in 02 §Stage 4). `exclude_locations` drops a role based there even when it's
    labelled remote.
 
@@ -60,8 +61,8 @@ offer open public job-search APIs, and scraping them violates their terms.** So 
 on sources that *permit* programmatic access:
 
 - **Adzuna API** — free developer tier, aggregates listings across 12 countries **including
-  Australia**; supports keyword + location + salary queries. Strong primary source for a
-  Sydney-based search. ([developer.adzuna.com](https://developer.adzuna.com/))
+  Australia**; supports keyword + location + salary queries. Strong primary source for an
+  Australian search. ([developer.adzuna.com](https://developer.adzuna.com/))
 - **USAJobs API** — official, free, but **US federal only**; include only if US roles matter.
 - **Official/company feeds** — many ATSs (Greenhouse, Lever, Ashby, Workable) expose public JSON
   job boards per company; ideal for target-company watchlists. Permitted and stable.
@@ -138,7 +139,7 @@ still thin — see `IMPLEMENTATION_PLAN.md`)*
 Adzuna adapter → normalize (incl. seniority inference + salary/period parsing) → dedupe →
 hard filter → plain Markdown list. Profile drives queries and hard requirements.
 **Includes the golden fixture corpus and its test harness.**
-Deliverable: "run it, get a filtered list of real Sydney roles," with the filter tally. No scoring yet.
+Deliverable: "run it, get a filtered list of real roles," with the filter tally. No scoring yet.
 
 **Phase 2 — Scoring + ranking.** *(built)*
 Add the weighted scorer with per-component reasons, the normalization rule, ranking, and the

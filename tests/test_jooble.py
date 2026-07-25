@@ -309,7 +309,7 @@ def test_search_returns_raw_listings(adapter):
     with patch("httpx.Client") as mock_client_cls:
         mock_client = _client_mock(mock_resp)
         mock_client_cls.return_value = mock_client
-        results = adapter.search("cookery trainer", "Sydney", max_results=10)
+        results = adapter.search("platform engineer", "Remote", max_results=10)
 
     assert len(results) == 2
     assert results[0]["id"] == 1111111111
@@ -322,12 +322,12 @@ def test_search_posts_to_keyed_url_with_json_body(adapter):
     with patch("httpx.Client") as mock_client_cls:
         mock_client = _client_mock(mock_resp)
         mock_client_cls.return_value = mock_client
-        adapter.search("chef", "Sydney", max_results=5)
+        adapter.search("platform engineer", "Remote", max_results=5)
 
     args, kwargs = mock_client.post.call_args
     assert args[0].endswith("/test_api_key")
-    assert kwargs["json"]["keywords"] == "chef"
-    assert kwargs["json"]["location"] == "Sydney"
+    assert kwargs["json"]["keywords"] == "platform engineer"
+    assert kwargs["json"]["location"] == "Remote"
 
 
 def test_search_empty_results(adapter):
@@ -346,7 +346,7 @@ def test_search_respects_max_results(adapter):
     with patch("httpx.Client") as mock_client_cls:
         mock_client = _client_mock(mock_resp)
         mock_client_cls.return_value = mock_client
-        results = adapter.search("chef", "Sydney", max_results=3)
+        results = adapter.search("platform engineer", "Remote", max_results=3)
 
     assert len(results) == 3
 
@@ -364,7 +364,7 @@ def test_search_paginates_when_multiple_pages():
         adapter_local = JoobleAdapter(page_delay=0.0)
         mock_client = _client_mock(side_effect=responses)
         mock_client_cls.return_value = mock_client
-        results = adapter_local.search("chef", "Australia", max_results=10)
+        results = adapter_local.search("platform engineer", "Australia", max_results=10)
 
     assert len(results) == 3
     assert mock_client.post.call_count == 2
@@ -382,7 +382,7 @@ def test_search_stops_when_total_exhausted():
         adapter_local = JoobleAdapter(page_delay=0.0)
         mock_client = _client_mock(_mock_response(page))
         mock_client_cls.return_value = mock_client
-        results = adapter_local.search("chef", "Australia", max_results=10)
+        results = adapter_local.search("platform engineer", "Australia", max_results=10)
 
     assert len(results) == 2
     assert mock_client.post.call_count == 1
@@ -393,7 +393,7 @@ def test_search_increments_requests_made(adapter):
     with patch("httpx.Client") as mock_client_cls:
         mock_client = _client_mock(mock_resp)
         mock_client_cls.return_value = mock_client
-        adapter.search("chef", "Sydney", max_results=5)
+        adapter.search("platform engineer", "Remote", max_results=5)
 
     assert adapter.requests_made == 1
 
@@ -408,7 +408,7 @@ def test_search_raises_on_http_error(adapter):
         mock_client = _client_mock(mock_resp)
         mock_client_cls.return_value = mock_client
         with pytest.raises(Exception):
-            adapter.search("chef", "Sydney", max_results=5)
+            adapter.search("platform engineer", "Remote", max_results=5)
 
 
 def test_missing_api_key_raises_keyerror():

@@ -20,7 +20,7 @@ looking at; I decide what to apply to.
 
 ## Primary user
 
-Me (Justin) — one person running an active or passive job search. Single-user by design in v1;
+A single person running an active or passive job search. Single-user by design in v1;
 the tool is a personal assistant, not a multi-tenant product. It should assume a technical
 owner comfortable editing a config file and running a command or a scheduled task.
 

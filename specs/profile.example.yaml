@@ -1,7 +1,8 @@
 # profile.example.yaml
 # Copy this to `profile.yaml` and fill in the blanks. This file is the single knob that
 # controls what the tool searches for, what it filters out, and how it ranks survivors.
-# Everyday tuning happens HERE, not in code. (Values below are illustrative placeholders.)
+# Everyday tuning happens HERE, not in code. Every value below is an illustrative
+# placeholder — replace them with your own; nothing here is a recommended default.
 # Validated against the schema in specs/03-data-model.md on load — typos fail loud.
 
 identity:
@@ -11,7 +12,7 @@ identity:
     - "Node.js"
     - "AWS"
     - "system design"
-  target:                           # one entry per track I'd accept; scoring measures
+  target:                           # one entry per track you would accept; scoring measures
     - track: "ic"                   #   distance from these on the listing's own track
       level: "senior"               # ic: intern|junior|mid|senior|staff|principal
     - track: "management"
@@ -30,10 +31,13 @@ queries:                            # the ONLY source of search terms (titles go
   max_requests_per_run: 100         # hard cap; run truncates (and says so) rather than exceed
 
 hard_requirements:                  # any failure => listing dropped; UNKNOWN data => kept & marked
-  # --- Location policy: REMOTE ONLY, and NOT tied to Sydney ---------------
+  # --- Location policy ----------------------------------------------------
+  # Filter on location only where the source data is reliable. Aggregators tag
+  # roles by suburb or company HQ, so a strict location filter drops genuinely
+  # remote roles — prefer a high location_fit weight below. See 02 §Stage 4.
   remote_policy: "remote_only"      # remote_only | hybrid_ok | onsite_ok | any (defined in 02 §Stage 4)
   exclude_locations:                # drop roles based in any of these, even if labelled remote
-    - "Sydney"
+    - "Example City"                #   covers "remote, but must be local" postings
   locations_allowed: []             # [] = any location is fine PROVIDED remote_policy passes
                                     #      and the role is not in exclude_locations.
                                     #      Populate to positively restrict to certain places.
@@ -41,10 +45,10 @@ hard_requirements:                  # any failure => listing dropped; UNKNOWN da
     ic:         { min: "mid", max: null }
     management: { min: "manager", max: "director" }
   salary_floor: 160000              # annualized comparison; null = no floor
-  salary_currency: "AUD"
-  fx_rates:                         # pinned rates INTO AUD; currencies not listed => salary "unknown"
-    USD: 1.50
-    NZD: 0.93
+  salary_currency: "AUD"            # ISO 4217; your comparison currency
+  fx_rates:                         # OPTIONAL overrides of the global fx_rates.yaml, INTO
+    USD: 1.50                       #   salary_currency. A currency with no rate anywhere
+    NZD: 0.93                       #   makes that salary "unknown" (kept, not dropped).
   keep_unknown_salary: true         # keep listings with no (comparable) salary
   exclude_employment:               # employment types to drop; unknown employment is kept
     - "internship"
@@ -55,15 +59,15 @@ hard_requirements:                  # any failure => listing dropped; UNKNOWN da
   max_age_days: 21
 
 preferences:                        # soft signals that influence ranking, not filtering
-  preferred_locations:              # (Sydney CBD removed: Sydney-based roles are hard-excluded
-    - "Remote Australia"            #  above, so a Sydney preference could never apply)
+  preferred_locations:              # keep these consistent with exclude_locations above —
+    - "Remote Australia"            #   a preference for a hard-excluded place never applies
   salary_target: 200000
   preferred_companies:
     - "Atlassian"
     - "Canva"
   deprioritize_keywords:            # soft counterpart to exclude_keywords: titles matching
-    - "sales"                       #   these sink on skill_match instead of being dropped
-    - "recruiter"
+    - "sales"                       #   these sink on skill_match instead of being dropped.
+    - "recruiter"                   #   Use for domains usually wrong but occasionally right.
   # industry / company-size preferences: cut from v1 (no source provides the data) —
   # see specs/04-technical-plan.md §Decisions
 
@@ -89,8 +93,9 @@ sources:                            # unified source activation — a source abs
   # jooble: { enabled: true }      # needs JOOBLE_API_KEY env var (free key)
 
 search_mode: "active_employed"      # active_unemployed | active_employed | passive_employed
-                                    # posture preset (see specs/02) — explicit output/
-                                    # hard_requirements values below override its defaults
+                                    # posture preset (see specs/02) — sets defaults for
+                                    # display_threshold, max_shown and max_age_days; any
+                                    # explicit value in this file overrides the preset
 
 output:
   display_threshold: 55             # hide scored results below this (0-100)

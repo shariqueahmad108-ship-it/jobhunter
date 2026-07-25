@@ -679,7 +679,7 @@ def test_require_keywords_validated_and_defaulted(tmp_path: Path) -> None:
     data = _minimal()
     data["hard_requirements"] = {
         **data["hard_requirements"],
-        "require_keywords": [{"term": "cookery"}],
+        "require_keywords": [{"term": "kubernetes"}],
     }
     prof = load_profile(_write(tmp_path, data))
     assert prof["hard_requirements"]["require_keywords"][0]["scope"] == "requirements"
@@ -989,7 +989,7 @@ def test_sources_unknown_key_rejected(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Workday entries in sources.ats_watchlist (karynne-source-config)
+# Workday entries in sources.ats_watchlist
 # ---------------------------------------------------------------------------
 
 
@@ -1042,26 +1042,24 @@ def test_queries_ats_watchlist_workday_with_path(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Live profile smoke tests (karynne-source-config)
+# Live profile smoke test
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).parent.parent
 
 
-def test_karynne_profile_loads() -> None:
-    """profile-karynne.yaml loads without ProfileError when present on disk."""
-    p = _REPO_ROOT / "profile-karynne.yaml"
-    if not p.exists():
-        pytest.skip("profile-karynne.yaml not present (git-ignored; copy from example)")
-    load_profile(p)
+def test_real_profiles_load() -> None:
+    """Every root profile-*.yaml on disk loads without ProfileError.
 
-
-def test_justin_profile_loads() -> None:
-    """profile-justin.yaml loads without ProfileError when present on disk."""
-    p = _REPO_ROOT / "profile-justin.yaml"
-    if not p.exists():
-        pytest.skip("profile-justin.yaml not present (git-ignored; copy from example)")
-    load_profile(p)
+    Real profiles are git-ignored, so this skips on a fresh clone. When they are
+    present it is the only test that exercises the validator against a
+    hand-edited file rather than a constructed dict.
+    """
+    profiles = sorted(_REPO_ROOT.glob("profile-*.yaml"))
+    if not profiles:
+        pytest.skip("no root profile-*.yaml present (git-ignored; copy from the example)")
+    for p in profiles:
+        load_profile(p)
 # fx_rates_age_days (fx-staleness-warning)
 # ---------------------------------------------------------------------------
 

@@ -210,7 +210,6 @@ def test_sources_ats_watchlist_workday_wires_ats_adapter():
 
 # ---------------------------------------------------------------------------
 # sources: block — END-TO-END criterion for feeds, remotive, remoteok, jooble
-# (karynne-source-config work item)
 # ---------------------------------------------------------------------------
 
 

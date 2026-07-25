@@ -122,7 +122,6 @@ A listing that fails *any one* is dropped. The unknown-data policy above governs
 Configurable hard filters:
 
 - **Location / remote:** three profile knobs combine — all configuration, not hardcoded.
-  (This project's policy: **remote-only, excluding Sydney-based roles** — see README.)
   1. **`exclude_locations`** is checked first: a listing whose parsed location matches any entry
      is dropped **even when the role is labelled remote** — this covers "remote, but must be
      Sydney-based" postings.
@@ -167,9 +166,10 @@ Configurable hard filters:
   `title` scope if description matches prove too aggressive.
 - **Required keywords (domain anchor):** if `require_keywords` is non-empty, a
   listing must match **at least one** term (same word-boundary + scope semantics
-  as deal-breakers) or it is dropped. Use for domain anchoring — e.g. a culinary
-  trainer profile requiring one of {cookery, chef, food, kitchen} so trainer
-  ads from unrelated fields (counselling, business) never surface. Empty list =
+  as deal-breakers) or it is dropped. Use for domain anchoring — e.g. requiring
+  one of {software, developer, engineering, cloud} so that "community manager"
+  or "delivery manager" ads from unrelated industries never surface. The filter
+  is domain-agnostic: any profile can anchor to its own vocabulary. Empty list =
   no requirement.
 - **Freshness:** drop listings older than `max_age_days` (by `posted_at`, falling back to `first_seen_at`).
 - **Dismissed:** drop anything I explicitly dismissed in a prior run (see Stage 7 — dismissals are
@@ -272,15 +272,15 @@ Produce the run's output as a human-readable digest plus a machine-readable file
 
 ## Core user stories
 
-1. *As Justin, I run the tool and get a ranked shortlist of new-since-last-time roles, best first, each with a reason — without opening a job board.*
-2. *As Justin, I raise my salary floor in the profile and the next run drops the now-too-low roles.*
-3. *As Justin, I add a deal-breaker keyword and matching roles disappear from future runs.*
-4. *As Justin, I see the same role posted on two boards as a single entry with both links.*
-5. *As Justin, I run `jobhunter dismiss <id>` on a role from the digest and never see it again.*
-6. *As Justin, one board is down and I still get results from the others, with a note that one source failed.*
-7. *As Justin, I can still review yesterday's shortlist today — seen roles move to "Previously shown" rather than vanishing.*
-8. *As Justin, a role whose salary was updated re-surfaces as new; cosmetic churn doesn't.*
-9. *As Justin, "remote but must be Sydney-based" postings never reach my shortlist — `exclude_locations` drops them even though they're labelled remote.*
+1. *As the user, I run the tool and get a ranked shortlist of new-since-last-time roles, best first, each with a reason — without opening a job board.*
+2. *As the user, I raise my salary floor in the profile and the next run drops the now-too-low roles.*
+3. *As the user, I add a deal-breaker keyword and matching roles disappear from future runs.*
+4. *As the user, I see the same role posted on two boards as a single entry with both links.*
+5. *As the user, I run `jobhunter dismiss <id>` on a role from the digest and never see it again.*
+6. *As the user, one board is down and I still get results from the others, with a note that one source failed.*
+7. *As the user, I can still review yesterday's shortlist today — seen roles move to "Previously shown" rather than vanishing.*
+8. *As the user, a role whose salary was updated re-surfaces as new; cosmetic churn doesn't.*
+9. *As the user, "remote but must be locally based" postings never reach my shortlist — `exclude_locations` drops them even though they're labelled remote.*
 
 ## Modes of operation (v1)
 

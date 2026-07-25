@@ -748,21 +748,21 @@ def _profile_with_required(req):
 
 
 def test_require_keywords_drops_off_domain():
-    """A counselling trainer ad dies when cooking terms are required."""
-    prof = _profile_with_required([{"term": "cookery", "scope": "requirements"},
-                                   {"term": "chef", "scope": "requirements"}])
-    listing = _listing(id="c1", is_remote=True, title="Trainer and Assessor - Counselling",
-                       description="Deliver counselling qualifications at our RTO.")
+    """A community-services ad dies when platform terms are required."""
+    prof = _profile_with_required([{"term": "kubernetes", "scope": "requirements"},
+                                   {"term": "terraform", "scope": "requirements"}])
+    listing = _listing(id="c1", is_remote=True, title="Community Engagement Officer",
+                       description="Support local community programs for our members.")
     result = run([listing], prof, today=TODAY)
     assert len(result.passed) == 0
     assert result.tally.by_required == 1
 
 
 def test_require_keywords_any_one_match_passes():
-    prof = _profile_with_required([{"term": "cookery", "scope": "requirements"},
-                                   {"term": "chef", "scope": "requirements"}])
-    listing = _listing(id="c2", is_remote=True, title="Trainer and Assessor - Commercial Cookery",
-                       description="Deliver Certificate III in Commercial Cookery.")
+    prof = _profile_with_required([{"term": "kubernetes", "scope": "requirements"},
+                                   {"term": "terraform", "scope": "requirements"}])
+    listing = _listing(id="c2", is_remote=True, title="Platform Engineer - Kubernetes",
+                       description="Run our Kubernetes clusters and CI tooling.")
     result = run([listing], prof, today=TODAY)
     assert len(result.passed) == 1
 
@@ -775,9 +775,9 @@ def test_require_keywords_empty_means_no_requirement():
 
 
 def test_require_keywords_title_scope():
-    prof = _profile_with_required([{"term": "cookery", "scope": "title"}])
-    listing = _listing(id="c4", is_remote=True, title="Business Trainer",
-                       description="Mentions cookery only in the body.")
+    prof = _profile_with_required([{"term": "kubernetes", "scope": "title"}])
+    listing = _listing(id="c4", is_remote=True, title="Business Analyst",
+                       description="Mentions kubernetes only in the body.")
     result = run([listing], prof, today=TODAY)
     assert len(result.passed) == 0  # title scope ignores the description mention
 
