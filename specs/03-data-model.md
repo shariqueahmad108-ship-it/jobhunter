@@ -134,6 +134,8 @@ output:
   max_shown:            number   # default 25; cap on "New this run" section
   show_previously_seen: boolean  # default true; render the "Previously shown" section
   format:               enum(markdown, html, both)   # default markdown
+  keep_raw:             boolean  # default true; persist the pre-filter snapshot that
+                                 #   `jobhunter replay` re-scores offline (05 §5.2)
 ```
 
 ## ScoredResult (post-scoring, what the digest renders)
@@ -187,6 +189,48 @@ shown_new:         number
 shown_previous:    number
 active_weights:    map<string, number>   # so threshold changes are interpretable
 ```
+
+## Source stats (persisted per run; see 05 §5.1)
+
+Appended once per run to `state/<profile>/source_stats.json`. One record per
+source per run — history is never rewritten, so trends stay comparable.
+
+```yaml
+schema_version: number
+runs:
+  - run_at:  date
+    sources:
+      - name:          string    # adapter name as it appears in sources_used
+        fetched:       number    # raw listings returned
+        contributed:   number    # post-dedupe survivors this source supplied
+        sole_source:   number    # survivors ONLY this source supplied
+        passed_filter: number    # of contributed, survived Stage 4
+        shown:         number    # of passed_filter, rendered in the digest
+        dismissed:     number    # of shown, later dismissed by the user
+        requests:      number
+        failed:        boolean
+        error:         string | null
+```
+
+Invariant (test-enforced): `shown ≤ passed_filter ≤ contributed ≤ fetched`, and
+`sole_source ≤ contributed`. A source absent from the current profile keeps its
+historical records and is reported as inactive.
+
+## Run snapshot (pre-filter; see 05 §5.2)
+
+Written when `output.keep_raw` is true, alongside the run's data file. It holds
+the **normalized, deduped, pre-filter** listing set plus the profile actually in
+force, which is what makes an offline replay reproducible.
+
+```yaml
+schema_version:  number
+run_at:          date
+profile_snapshot: Profile         # the resolved profile, presets already applied
+listings:        [JobListing]     # post-normalize, post-dedupe, PRE hard filter
+```
+
+Replay reads only this file. It applies `dismissed_ids` from run state (a
+dismissal is a real user decision) but writes nothing back — see 05 §5.2.
 
 ## Notes on identity & dedupe
 

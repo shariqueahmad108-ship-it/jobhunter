@@ -91,3 +91,5 @@ output:
   max_shown: 25                     # cap on the "New this run" section
   show_previously_seen: true        # keep prior shortlists reviewable in a second section
   format: "both"                    # markdown | html | both
+  keep_raw: true                    # persist the pre-filter snapshot `jobhunter replay`
+                                    #   re-scores offline (specs/05 §5.2)

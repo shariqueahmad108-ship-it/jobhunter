@@ -135,6 +135,11 @@ a salary change re-surfaces a listing.
 Add ATS company-feed adapters and/or a second API; wire up the scheduled weekday-morning run and
 a delivery mechanism.
 
+**Phase 5 — Operator tooling (`specs/05-operator-tooling.md`).**
+Per-source contribution stats, offline `replay` re-scoring, and ATS board
+`probe`/`--check`. Deliverable: source value and calibration changes are
+measurable without a live run, and no board enters the watchlist unverified.
+
 **Later / out of current scope:** industry/company-size enrichment (unlocks the cut scoring
 signals), LLM-assisted semantic skill matching (cached per Decisions §2), resume tailoring,
 cover-letter drafting, full application tracker (separate modules, explicitly non-goals of this spec).
