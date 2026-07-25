@@ -15,7 +15,7 @@ from typing import Optional
 from jobhunter import dedupe, normalize
 from jobhunter.filter import run as filter_run
 from jobhunter.ingest import SourceAdapter
-from jobhunter.model import JobListing, RunReport, ScoredResult, SourceFailure
+from jobhunter.model import JobListing, RunReport, ScoredResult, SourceFailure, SourceStat
 from jobhunter.rank import run as rank_run
 from jobhunter.score import run as score_run
 
@@ -51,6 +51,11 @@ def run(
     truncated = False
     done = False
 
+    # Per-source tracking for source contribution stats.
+    fetched_by_source: dict[str, int] = {}
+    requests_by_source: dict[str, int] = {}
+    failed_by_source: dict[str, Optional[str]] = {}  # name -> error string
+
     def _auth_failure(exc: Exception) -> bool:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         return status in (401, 403)
@@ -69,18 +74,25 @@ def run(
                 truncated = True
                 done = True
                 break
+            adapter_fetched = 0
             try:
                 results = adapter.search("", "", max_results)
                 for raw in results:
                     raw_listings.append(adapter.normalize(raw))
+                adapter_fetched = len(results)
                 if adapter.name not in sources_used:
                     sources_used.append(adapter.name)
             except Exception as exc:
                 sources_failed.append(SourceFailure(name=adapter.name, error=str(exc)))
+                failed_by_source[adapter.name] = str(exc)
             if hasattr(adapter, "company_failures"):
                 for msg in adapter.company_failures:
                     sources_failed.append(SourceFailure(name=adapter.name, error=msg))
             requests_made += 1
+            fetched_by_source[adapter.name] = (
+                fetched_by_source.get(adapter.name, 0) + adapter_fetched
+            )
+            requests_by_source[adapter.name] = requests_by_source.get(adapter.name, 0) + 1
             continue
 
         counts_requests = hasattr(adapter, "requests_made")
@@ -88,6 +100,8 @@ def run(
         total_before_adapter = requests_made
         queries_attempted = 0
         adapter_dead = False
+        adapter_fetched = 0
+        adapter_error: Optional[str] = None
         for keyword in keywords:
             if done or adapter_dead:
                 break
@@ -101,10 +115,12 @@ def run(
                     queries_attempted += 1
                     for raw in results:
                         raw_listings.append(adapter.normalize(raw))
+                    adapter_fetched += len(results)
                     if adapter.name not in sources_used:
                         sources_used.append(adapter.name)
                 except Exception as exc:
                     queries_attempted += 1
+                    adapter_error = str(exc)
                     sources_failed.append(SourceFailure(name=adapter.name, error=str(exc)))
                     if _auth_failure(exc):
                         adapter_dead = True  # credentials are wrong; stop querying it
@@ -116,15 +132,39 @@ def run(
                 else:
                     requests_made = total_before_adapter + queries_attempted
 
+        fetched_by_source[adapter.name] = fetched_by_source.get(adapter.name, 0) + adapter_fetched
+        requests_by_source[adapter.name] = requests_by_source.get(adapter.name, 0) + (
+            requests_made - total_before_adapter
+        )
+        if adapter_error is not None and adapter.name not in failed_by_source:
+            failed_by_source[adapter.name] = adapter_error
+
     # Stage 2: post-adapter normalization pass
     normalized = normalize.run(raw_listings)
 
     # Stage 3: dedupe by identity key and URL
     deduped = dedupe.run(normalized)
 
+    # Compute contributed and sole_source from the merged sources[] on deduped listings.
+    contributed_by_source: dict[str, int] = {}
+    sole_by_source: dict[str, int] = {}
+    for listing in deduped:
+        source_names = {s.name for s in listing.sources}
+        for name in source_names:
+            contributed_by_source[name] = contributed_by_source.get(name, 0) + 1
+        if len(source_names) == 1:
+            name = next(iter(source_names))
+            sole_by_source[name] = sole_by_source.get(name, 0) + 1
+
     # Stage 4: hard filter
     filter_result = filter_run(deduped, profile, dismissed_ids=dismissed_ids, today=today)
     tally = filter_result.tally
+
+    # Compute passed_filter from Stage 4 survivors.
+    passed_filter_by_source: dict[str, int] = {}
+    for listing in filter_result.passed:
+        for s in listing.sources:
+            passed_filter_by_source[s.name] = passed_filter_by_source.get(s.name, 0) + 1
 
     # Stage 5: score surviving listings
     scored = score_run(
@@ -136,6 +176,28 @@ def run(
 
     # Stage 6: rank and apply display threshold
     shortlist, below_threshold = rank_run(scored, profile)
+
+    # Build per-source stats (shown=0 — updated by cli after rendering).
+    all_source_names = sorted(
+        set(fetched_by_source) | set(failed_by_source) | set(contributed_by_source)
+    )
+    source_stats: list[SourceStat] = []
+    for name in all_source_names:
+        is_failed = name in failed_by_source
+        source_stats.append(
+            SourceStat(
+                name=name,
+                fetched=fetched_by_source.get(name, 0),
+                contributed=contributed_by_source.get(name, 0),
+                sole_source=sole_by_source.get(name, 0),
+                passed_filter=passed_filter_by_source.get(name, 0),
+                shown=0,  # filled in by cli after partition + render
+                dismissed=0,
+                requests=requests_by_source.get(name, 0),
+                failed=is_failed,
+                error=failed_by_source.get(name) if is_failed else None,
+            )
+        )
 
     # Populate active_weights for the run report header
     weights_cfg: dict = profile.get("weights", {})
@@ -161,6 +223,7 @@ def run(
         shown_new=len(shortlist),
         active_weights=active_weights,
         search_mode=profile.get("search_mode"),
+        source_stats=source_stats,
     )
 
     return shortlist, report

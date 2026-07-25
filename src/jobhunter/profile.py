@@ -437,7 +437,14 @@ def _validate_weights(weights: dict) -> None:
 def _validate_output(output: dict) -> None:
     _unknown_keys(
         output,
-        {"display_threshold", "max_shown", "show_previously_seen", "format", "data_format"},
+        {
+            "display_threshold",
+            "max_shown",
+            "show_previously_seen",
+            "format",
+            "data_format",
+            "keep_raw",
+        },
         "output",
     )
     if "display_threshold" in output:
@@ -459,6 +466,8 @@ def _validate_output(output: dict) -> None:
                 f"output.data_format: must be one of {sorted(_DATA_FORMATS)}, "
                 f"got {output['data_format']!r}"
             )
+    if "keep_raw" in output:
+        _expect_type(output["keep_raw"], bool, "output.keep_raw")
 
 
 def load_fx_rates(path: str | Path = "fx_rates.yaml") -> dict:
@@ -582,6 +591,7 @@ def load_profile(path: str | Path) -> dict:
     out.setdefault("show_previously_seen", True)
     out.setdefault("format", "markdown")
     out.setdefault("data_format", "json")
+    out.setdefault("keep_raw", True)
 
     raw.setdefault("sources", {})
 

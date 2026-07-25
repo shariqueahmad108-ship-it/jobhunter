@@ -29,6 +29,7 @@ from .profile import (
     load_fx_rates,
     load_profile,
 )
+from .source_stats import StatsRun, append_run, format_json, format_table, load_stats, save_stats
 from .state import (
     dismiss_ids,
     load_state,
@@ -40,6 +41,42 @@ from .state import (
 
 _DEFAULT_PROFILE = Path("profile.yaml")
 _DEFAULT_STATE = Path("state/state.yaml")
+
+
+def _active_source_names(profile: dict) -> set[str]:
+    """Return source names that are active in this profile (without instantiating adapters)."""
+    names: set[str] = set()
+    sources = profile.get("sources") or {}
+
+    adzuna_cfg = sources.get("adzuna")
+    if adzuna_cfg is None or adzuna_cfg.get("enabled", True):
+        names.add("adzuna")
+
+    watchlist = (
+        sources.get("ats_watchlist") or profile.get("queries", {}).get("ats_watchlist") or []
+    )
+    if watchlist:
+        names.add("ats")
+
+    if sources.get("feeds"):
+        names.add("rss")
+
+    if (sources.get("remotive") or {}).get("enabled"):
+        names.add("remotive")
+
+    if (sources.get("remoteok") or {}).get("enabled"):
+        names.add("remoteok")
+
+    if (sources.get("jooble") or {}).get("enabled"):
+        names.add("jooble")
+
+    return names
+
+
+def _stats_path(state_path: Path, slug_suffix: str) -> Path:
+    """Return the source stats file path for the given state path and profile slug."""
+    filename = "source_stats.json" if not slug_suffix else f"source_stats-{slug_suffix}.json"
+    return state_path.parent / filename
 
 
 def _build_adapters(profile: dict) -> list:
@@ -83,8 +120,7 @@ def _build_adapters(profile: dict) -> list:
         watchlist = profile.get("queries", {}).get("ats_watchlist") or []
         if watchlist:
             print(
-                "Note: queries.ats_watchlist is deprecated — move it to "
-                "sources.ats_watchlist.",
+                "Note: queries.ats_watchlist is deprecated — move it to sources.ats_watchlist.",
                 file=sys.stderr,
             )
     if watchlist:
@@ -162,9 +198,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # FX rates are global (fx_rates.yaml at repo root); the profile may override
     # individual currencies. Injected here so filter/score read one merged table.
     _fx_path = "fx_rates.yaml"
-    profile["hard_requirements"]["fx_rates"] = effective_fx_rates(
-        profile, load_fx_rates(_fx_path)
-    )
+    profile["hard_requirements"]["fx_rates"] = effective_fx_rates(profile, load_fx_rates(_fx_path))
     _fx_age = fx_rates_age_days(_fx_path)
     _FX_STALE_DAYS = 90
 
@@ -266,6 +300,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except OSError as e:
         print(f"Warning: could not save state to {state_path}: {e}", file=sys.stderr)
 
+    # Finalize shown counts and persist source stats.
+    shown_by_source: dict[str, int] = {}
+    for r in all_shown:
+        for src in r.listing.sources:
+            shown_by_source[src.name] = shown_by_source.get(src.name, 0) + 1
+    for stat in report.source_stats:
+        stat.shown = shown_by_source.get(stat.name, 0)
+
+    sp = _stats_path(state_path, slug_suffix)
+    try:
+        history = load_stats(sp)
+        history = append_run(history, StatsRun(run_at=report.run_at, sources=report.source_stats))
+        save_stats(history, sp)
+    except Exception as e:
+        print(f"Warning: could not save source stats to {sp}: {e}", file=sys.stderr)
+
     return 0
 
 
@@ -321,6 +371,36 @@ def _cmd_dismissed(args: argparse.Namespace) -> int:
     else:
         for lid in state.dismissed_ids:
             print(lid)
+    return 0
+
+
+def _cmd_sources(args: argparse.Namespace) -> int:
+    profile_path = Path(args.profile)
+    state_path = Path(args.state)
+    slug_suffix = _profile_slug(profile_path)
+    if slug_suffix and str(state_path) == str(_DEFAULT_STATE):
+        state_path = state_path.with_name(f"state-{slug_suffix}.yaml")
+
+    sp = _stats_path(state_path, slug_suffix)
+    try:
+        history = load_stats(sp)
+    except ValueError as e:
+        print(f"Error loading source stats: {e}", file=sys.stderr)
+        return 1
+
+    last_n: int | None = getattr(args, "last", None)
+
+    active: set[str] | None = None
+    try:
+        profile = load_profile(profile_path)
+        active = _active_source_names(profile)
+    except Exception:
+        pass  # profile absent or invalid — omit inactive marking
+
+    if args.json:
+        print(format_json(history, last_n=last_n))
+    else:
+        print(format_table(history, last_n=last_n, active_sources=active))
     return 0
 
 
@@ -381,6 +461,33 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Path to run-state file (default: {_DEFAULT_STATE})",
     )
     dismissed_p.set_defaults(func=_cmd_dismissed)
+
+    sources_p = sub.add_parser("sources", help="Show per-source contribution stats across runs.")
+    sources_p.add_argument(
+        "--profile",
+        default=str(_DEFAULT_PROFILE),
+        metavar="PATH",
+        help=f"Path to profile.yaml (default: {_DEFAULT_PROFILE})",
+    )
+    sources_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
+    sources_p.add_argument(
+        "--last",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Limit to the most recent N runs.",
+    )
+    sources_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of a table.",
+    )
+    sources_p.set_defaults(func=_cmd_sources)
 
     return parser
 

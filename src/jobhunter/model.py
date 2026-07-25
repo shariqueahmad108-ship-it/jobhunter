@@ -116,6 +116,26 @@ class SourceFailure:
 
 
 @dataclass
+class SourceStat:
+    """Per-source counters for one run.
+
+    See: specs/03-data-model.md §Source stats
+         specs/05-operator-tooling.md §5.1
+    """
+
+    name: str
+    fetched: int = 0
+    contributed: int = 0
+    sole_source: int = 0
+    passed_filter: int = 0
+    shown: int = 0
+    dismissed: int = 0
+    requests: int = 0
+    failed: bool = False
+    error: Optional[str] = None
+
+
+@dataclass
 class RunReport:
     """Per-run metadata shown in the digest header.
 
@@ -143,6 +163,7 @@ class RunReport:
     active_weights: dict[str, float] = field(default_factory=dict)
     search_mode: Optional[str] = None  # active posture preset, for the digest header
     fx_rates_stale_days: Optional[int] = None  # set when fx_rates.yaml is older than 90 days
+    source_stats: list["SourceStat"] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

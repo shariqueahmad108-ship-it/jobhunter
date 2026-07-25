@@ -26,6 +26,7 @@ import io
 import json
 
 from jobhunter.model import RunReport, Salary, ScoredResult
+from jobhunter.source_stats import source_header_lines as _source_header_lines
 
 
 def _short_id(listing_id: str) -> str:
@@ -125,6 +126,10 @@ def render_markdown(
     if report.sources_failed:
         failed_str = ", ".join(f"{sf.name} ({sf.error})" for sf in report.sources_failed)
         lines.append(f"Sources failed: {failed_str}")
+
+    if report.source_stats:
+        lines.append("Source stats:")
+        lines.extend(_source_header_lines(report.source_stats))
 
     lines.append(f"Requests made: {report.requests_made}")
     if report.truncated:
@@ -313,6 +318,11 @@ def render_html(
     if report.sources_failed:
         failed_str = ", ".join(f"{sf.name} ({sf.error})" for sf in report.sources_failed)
         parts.append(f'<strong class="warn">Sources failed:</strong> {_h(failed_str)}<br>')
+
+    if report.source_stats:
+        parts.append("<strong>Source stats:</strong><br>")
+        for line in _source_header_lines(report.source_stats):
+            parts.append(f"&nbsp;&nbsp;{_h(line.strip())}<br>")
 
     parts.append(f"<strong>Requests made:</strong> {report.requests_made}<br>")
     if report.truncated:
