@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Golden fixture corpus for JobHunter pipeline acceptance tests.
 
-30+ anonymized listings drawn from the open source / community / governance
+30 anonymized listings drawn from the open source / community / governance
 search domain (OSPO, DevRel, Head of Community, community manager roles),
 covering every awkward edge case called out in specs/04-technical-plan.md §Fixtures.
 
@@ -9,16 +9,17 @@ REF_DATE is injected into filter.run() and score.score() so the suite is
 deterministic regardless of when it runs.
 
 Sections:
-  FIXTURE_PROFILE — community/OSPO/DevRel oriented profile
-  CORPUS_PASS     — 10 listings that should pass the hard filter
-  CORPUS_FAIL     — 10 listings that should fail the hard filter
-  CORPUS_EDGE     —  5 edge-case listings that pass (day-rate, EUR unknown, etc.)
-  CORPUS          — the union of all three lists above
-  MERGE_PAIRS     — 10 (a, b) pairs that dedupe.run() should collapse to 1
-  NO_MERGE_PAIRS  — 10 (a, b) pairs that dedupe.run() must keep as 2
+  FIXTURE_PROFILE          — community/OSPO/DevRel oriented profile
+  CORPUS_PASS              — 13 listings that should pass the hard filter
+  CORPUS_FAIL              — 11 listings that should fail the hard filter
+  CORPUS_EDGE              —  6 edge-case listings that pass (day-rate, EUR unknown, etc.)
+  CORPUS                   — the union of all three lists above (30 total)
+  MERGE_PAIRS              — 10 (a, b) pairs that dedupe.run() should collapse to 1
+  NO_MERGE_PAIRS           — 10 (a, b) pairs that dedupe.run() must keep as 2
+  MATERIALLY_CHANGED_PAIRS — 2 (v1, v2) pairs for Stage-7 seen-state tests
 
 See: specs/04-technical-plan.md §Fixtures
-     specs/02-functional-spec.md §Stage 2–5
+     specs/02-functional-spec.md §Stage 2–7
 """
 
 from __future__ import annotations
@@ -506,6 +507,84 @@ CORPUS_PASS: list[CorpusEntry] = [
         expected_score_min=58.0,
         expected_score_max=64.0,
     ),
+    # C26 — non-remote listing with no parseable location (city=None, country=None)
+    #        → remote_only policy keeps it (unknown-data) + "location unclear" flag
+    #        location_fit sub=0.5 (non-remote, not in preferred_locations)
+    # score ≈ 30×1 + 20×1 + 20×0.333 + 15×0.5 + 10×0.5 + 5×0.781 = 73.1
+    CorpusEntry(
+        listing=_make(
+            title="Director of Community",
+            company="PlainCo",
+            location_raw="",
+            is_remote=False,
+            city=None,
+            country=None,
+            salary_min=180_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 180,000 per year",
+            seniority_track="management",
+            seniority_level="director",
+            posted_at=_days_ago(5),
+        ),
+        case="C26 Unknown location non-remote kept with location-unclear flag",
+        filter_pass=True,
+        filter_unknown_flags=["location unclear"],
+        expected_seniority_track="management",
+        expected_seniority_level="director",
+        expected_score_min=70.0,
+        expected_score_max=77.0,
+    ),
+    # C27 — management/senior_manager (one step below target director):
+    #        seniority_fit sub=0.75 (dist-1 in management band)
+    #        Verifies senior_manager is within [manager, director] band
+    # score ≈ 30×1 + 20×0.75 + 20×0.5 + 15×1 + 10×0.5 + 5×0.82 = 79.1
+    CorpusEntry(
+        listing=_make(
+            title="Senior Manager, Developer Community",
+            company="PingCo",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=190_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 190,000 per year",
+            seniority_track="management",
+            seniority_level="senior_manager",
+            posted_at=_days_ago(4),
+        ),
+        case="C27 Senior-Manager (dist-1 below director) Remote-AU AUD190k",
+        filter_pass=True,
+        expected_seniority_track="management",
+        expected_seniority_level="senior_manager",
+        expected_score_min=76.0,
+        expected_score_max=83.0,
+    ),
+    # C28 — bare Remote listing whose title contains "EMEA" → title geo-hint flag
+    #        instead of the generic "remote scope unclear"
+    #        "Community Lead — EMEA": lead → ic/staff via seniority rules
+    # score ≈ 30×1 + 20×1 + 20×0.25 + 15×0.75 + 10×0.5 + 5×0.741 = 74.95
+    CorpusEntry(
+        listing=_make(
+            title="Community Lead — EMEA",
+            company="OpenCo",
+            location_raw="Remote",
+            salary_min=175_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 175,000 per year",
+            seniority_track="ic",
+            seniority_level="staff",
+            posted_at=_days_ago(6),
+        ),
+        case="C28 EMEA-title-hint bare-remote ic/staff AUD175k",
+        filter_pass=True,
+        filter_unknown_flags=["remote scope: title hints EMEA"],
+        expected_seniority_track="ic",
+        expected_seniority_level="staff",
+        expected_score_min=72.0,
+        expected_score_max=78.0,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -723,6 +802,28 @@ CORPUS_FAIL: list[CorpusEntry] = [
         expected_seniority_track=None,
         expected_seniority_level=None,
     ),
+    # C29 — management/manager (within allowed band) but salary below floor
+    #        Verifies seniority check alone is not enough to pass — salary still checked
+    CorpusEntry(
+        listing=_make(
+            title="Developer Community Manager",
+            company="BudgetFirm",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=155_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 155,000 per year",
+            seniority_track="management",
+            seniority_level="manager",
+            posted_at=_days_ago(3),
+        ),
+        case="C29 Manager (within band) but AUD155k just below floor dropped by salary",
+        filter_pass=False,
+        filter_drop_reason="salary",
+        expected_seniority_track="management",
+        expected_seniority_level="manager",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -842,6 +943,31 @@ CORPUS_EDGE: list[CorpusEntry] = [
         expected_seniority_level="director",
         expected_score_min=81.0,
         expected_score_max=88.0,
+    ),
+    # C30 — ic/principal at preferred company (GitHub), Remote AU, AUD 200k, 7 days ago
+    #        ic/principal is one step above the ic/staff target (dist=1 → sub=0.75)
+    #        Verifies the upper IC boundary (principal is the highest IC level)
+    # score ≈ 30×1 + 20×0.75 + 20×0.667 + 15×1 + 10×1 + 5×0.707 = 86.9
+    CorpusEntry(
+        listing=_make(
+            title="Principal Developer Advocate",
+            company="GitHub",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=200_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 200,000 per year",
+            seniority_track="ic",
+            seniority_level="principal",
+            posted_at=_days_ago(7),
+        ),
+        case="C30 GitHub Principal-DevAdv ic/principal Remote-AU AUD200k (dist-1 above staff)",
+        filter_pass=True,
+        expected_seniority_track="ic",
+        expected_seniority_level="principal",
+        expected_score_min=84.0,
+        expected_score_max=91.0,
     ),
 ]
 
@@ -1263,5 +1389,100 @@ NO_MERGE_PAIRS: list[DedupePair] = [
         ),
         should_merge=False,
         case="NM10 Remote vs onsite Melbourne: different location key → no merge",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# SEEN-STATE TEST CASES (Stage 7 — materially-changed listings)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MateriallyChangedPair:
+    """A listing at two points in time: same id, possibly different content_hash.
+
+    v1: the version previously seen (persisted in state)
+    v2: the new version surfaced in the current run
+    should_resurface: True when v1 and v2 have different content_hash values
+                      (material change: title, salary, location, or description changed);
+                      False when content_hash is identical despite other differences
+                      (e.g. a new source was added — not a material change)
+    case: human-readable label for test output
+    """
+
+    v1: JobListing
+    v2: JobListing
+    should_resurface: bool
+    case: str
+
+
+MATERIALLY_CHANGED_PAIRS: list[MateriallyChangedPair] = [
+    # MC01 — salary raised AUD 170k → 195k: content_hash changes because
+    #         salary.min/max are included → resurface as new
+    MateriallyChangedPair(
+        v1=_make(
+            title="Developer Relations Lead",
+            company="EvolveCo",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=170_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 170,000 per year",
+            seniority_track="ic",
+            seniority_level="staff",
+            sources=[_src("adzuna", source_id="evolve-da-v1")],
+        ),
+        v2=_make(
+            title="Developer Relations Lead",
+            company="EvolveCo",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=195_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 195,000 per year",
+            seniority_track="ic",
+            seniority_level="staff",
+            sources=[_src("adzuna", source_id="evolve-da-v2")],
+        ),
+        should_resurface=True,
+        case="MC01 Salary raised AUD 170k→195k: same id, different content_hash → resurface",
+    ),
+    # MC02 — new source board added; title/salary/location/description unchanged
+    #         → sources[] is not part of content_hash → hash identical → NOT resurface
+    MateriallyChangedPair(
+        v1=_make(
+            title="OSPO Community Lead",
+            company="StableInc",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=175_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 175,000 per year",
+            seniority_track="ic",
+            seniority_level="staff",
+            sources=[_src("adzuna", source_id="stable-ospo-adzuna")],
+        ),
+        v2=_make(
+            title="OSPO Community Lead",
+            company="StableInc",
+            location_raw="Remote Australia",
+            country="AU",
+            salary_min=175_000,
+            salary_currency="AUD",
+            salary_period="year",
+            salary_raw="AUD 175,000 per year",
+            seniority_track="ic",
+            seniority_level="staff",
+            sources=[
+                _src("adzuna", source_id="stable-ospo-adzuna"),
+                _src("greenhouse", source_id="stable-ospo-greenhouse"),
+            ],
+        ),
+        should_resurface=False,
+        case="MC02 New source added only: content_hash unchanged → stays previously seen",
     ),
 ]
