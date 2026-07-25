@@ -23,25 +23,32 @@ from __future__ import annotations
 
 import pytest
 
-from jobhunter import dedupe, filter, normalize, score
+from jobhunter import dedupe, filter, normalize, rank, score
 from jobhunter.model import (
     JobListing,
     Location,
+    RunState,
+    ScoredResult,
+    SeenEntry,
     Source,
     derive_content_hash,
     derive_id,
     infer_seniority,
 )
+from jobhunter.state import partition_results
 from tests.fixtures.corpus import (
     CORPUS,
     CORPUS_EDGE,
     CORPUS_PASS,
     FIXTURE_PROFILE,
+    MATERIALLY_CHANGED_PAIRS,
     MERGE_PAIRS,
     NO_MERGE_PAIRS,
     REF_DATE,
+    REF_DATE_STR,
     CorpusEntry,
     DedupePair,
+    MateriallyChangedPair,
 )
 
 # ---------------------------------------------------------------------------
@@ -563,3 +570,138 @@ class TestEndToEnd:
             "CORPUS_PASS entries should all have unique ids — "
             f"expected {len(listings)}, got {len(deduped)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Stage 6 — Rank
+# ---------------------------------------------------------------------------
+
+
+class TestRankCorpus:
+    """Corpus-level acceptance tests for Stage 6 (rank)."""
+
+    def test_rank_corpus_sorted_best_first(self):
+        """Shortlist from rank.run() is in score-descending order."""
+        listings = [e.listing for e in CORPUS_PASS + CORPUS_EDGE]
+        scored = score.run(listings, FIXTURE_PROFILE, today=REF_DATE)
+        shortlist, _ = rank.run(scored, FIXTURE_PROFILE)
+        scores = [r.score for r in shortlist]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_rank_assigns_sequential_one_based_ranks(self):
+        """rank.run() assigns ranks 1, 2, 3, … in order."""
+        listings = [e.listing for e in CORPUS_PASS]
+        scored = score.run(listings, FIXTURE_PROFILE, today=REF_DATE)
+        shortlist, _ = rank.run(scored, FIXTURE_PROFILE)
+        assert [r.rank for r in shortlist] == list(range(1, len(shortlist) + 1))
+
+    def test_rank_c01_ranks_first(self):
+        """C01 (preferred company, exact seniority, Remote AU, high salary) ranks #1."""
+        listings = [e.listing for e in CORPUS_PASS + CORPUS_EDGE]
+        scored = score.run(listings, FIXTURE_PROFILE, today=REF_DATE)
+        shortlist, _ = rank.run(scored, FIXTURE_PROFILE)
+        c01_id = next(e for e in CORPUS_PASS if e.case.startswith("C01")).listing.id
+        assert shortlist[0].listing.id == c01_id, (
+            f"C01 should rank first but got id={shortlist[0].listing.id}"
+        )
+
+    def test_rank_shortlist_count_matches_above_threshold(self):
+        """With display_threshold=0 (fixture profile), all scored listings appear."""
+        listings = [e.listing for e in CORPUS_PASS + CORPUS_EDGE]
+        scored = score.run(listings, FIXTURE_PROFILE, today=REF_DATE)
+        shortlist, below_count = rank.run(scored, FIXTURE_PROFILE)
+        assert below_count == 0
+        assert len(shortlist) == len(listings)
+
+    def test_rank_c10_ranks_below_c01(self):
+        """C10 (NZD barely-above-floor, remote NZ) ranks below C01."""
+        listings = [e.listing for e in CORPUS_PASS]
+        scored = score.run(listings, FIXTURE_PROFILE, today=REF_DATE)
+        shortlist, _ = rank.run(scored, FIXTURE_PROFILE)
+        ranks = {r.listing.id: r.rank for r in shortlist}
+        c01_id = next(e for e in CORPUS_PASS if e.case.startswith("C01")).listing.id
+        c10_id = next(e for e in CORPUS_PASS if e.case.startswith("C10")).listing.id
+        assert ranks[c01_id] < ranks[c10_id], (
+            f"C01 rank={ranks[c01_id]} should be lower (better) than C10 rank={ranks[c10_id]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Stage 7 — Seen-state: materially-changed listings
+# ---------------------------------------------------------------------------
+
+
+class TestStateCorpus:
+    """Corpus-level acceptance tests for Stage 7 (seen-state partition)."""
+
+    @pytest.mark.parametrize(
+        "pair", MATERIALLY_CHANGED_PAIRS, ids=[p.case for p in MATERIALLY_CHANGED_PAIRS]
+    )
+    def test_materially_changed_pair_ids_are_stable(self, pair: MateriallyChangedPair):
+        """v1 and v2 of each pair share the same listing id (same identity)."""
+        assert pair.v1.id == pair.v2.id, (
+            f"{pair.case}: v1.id={pair.v1.id} != v2.id={pair.v2.id}"
+        )
+
+    def test_mc01_salary_change_yields_different_content_hash(self):
+        """MC01: raising salary changes content_hash (salary is part of the hash)."""
+        pair = next(p for p in MATERIALLY_CHANGED_PAIRS if p.case.startswith("MC01"))
+        assert pair.v1.content_hash != pair.v2.content_hash, (
+            "MC01: salary change should produce a different content_hash"
+        )
+
+    def test_mc02_source_added_keeps_same_content_hash(self):
+        """MC02: adding a source does not change content_hash (sources excluded from hash)."""
+        pair = next(p for p in MATERIALLY_CHANGED_PAIRS if p.case.startswith("MC02"))
+        assert pair.v1.content_hash == pair.v2.content_hash, (
+            "MC02: adding a source should leave content_hash unchanged"
+        )
+
+    def test_mc01_resurfaces_as_new_after_salary_change(self):
+        """MC01: v2 (new salary) is classified as NEW when v1 was previously seen."""
+        pair = next(p for p in MATERIALLY_CHANGED_PAIRS if p.case.startswith("MC01"))
+        seen = SeenEntry(
+            id=pair.v1.id, content_hash=pair.v1.content_hash, last_shown_at=REF_DATE_STR
+        )
+        state = RunState(schema_version=1, seen=[seen])
+        v2_result = ScoredResult(listing=pair.v2, score=80.0, rank=1)
+        new_results, prev_results = partition_results([v2_result], state)
+        assert len(new_results) == 1, "MC01 v2 should surface as new after salary change"
+        assert len(prev_results) == 0
+
+    def test_mc02_stays_previously_seen_after_source_added(self):
+        """MC02: v2 (extra source) stays 'previously seen' — content_hash unchanged."""
+        pair = next(p for p in MATERIALLY_CHANGED_PAIRS if p.case.startswith("MC02"))
+        seen = SeenEntry(
+            id=pair.v1.id, content_hash=pair.v1.content_hash, last_shown_at=REF_DATE_STR
+        )
+        state = RunState(schema_version=1, seen=[seen])
+        v2_result = ScoredResult(listing=pair.v2, score=80.0, rank=1)
+        new_results, prev_results = partition_results([v2_result], state)
+        assert len(new_results) == 0
+        assert len(prev_results) == 1, "MC02 v2 should remain 'previously seen' after source added"
+
+    def test_unseen_listing_always_new(self):
+        """A listing never before seen is always classified as new."""
+        entry = CORPUS_PASS[0]
+        empty_state = RunState(schema_version=1, seen=[])
+        result = ScoredResult(listing=entry.listing, score=80.0, rank=1)
+        new_results, prev_results = partition_results([result], empty_state)
+        assert len(new_results) == 1
+        assert len(prev_results) == 0
+
+    def test_rerun_without_change_is_previously_seen(self):
+        """A listing shown last run (same content_hash) appears as 'previously seen'."""
+        entry = CORPUS_PASS[0]
+        state = RunState(
+            schema_version=1,
+            seen=[SeenEntry(
+                id=entry.listing.id,
+                content_hash=entry.listing.content_hash,
+                last_shown_at=REF_DATE_STR,
+            )],
+        )
+        result = ScoredResult(listing=entry.listing, score=80.0, rank=1)
+        new_results, prev_results = partition_results([result], state)
+        assert len(new_results) == 0
+        assert len(prev_results) == 1
