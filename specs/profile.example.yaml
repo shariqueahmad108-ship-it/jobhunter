@@ -80,17 +80,31 @@ weights:                            # relative importance; 0 disables a componen
   recency: 5
 
 sources:                            # unified source activation — a source absent
-  adzuna: { enabled: true }         #   or enabled=false is never fetched
-  # ats_watchlist:                  # company boards (greenhouse|lever|ashby|workday)
-  #   - { ats: "greenhouse", slug: "gitlab", name: "GitLab" }
-  # feeds:                          # any public RSS/Atom job feed. Optional per-feed parsing
-  #   - { name: "myfeed", url: "https://example.com/jobs.rss" }
-  #                                 #   flags: company_from_title (feed packs "Company: Title"
-  #                                 #   into one element) and region_location (scope lives in
-  #                                 #   <region>) — both default off, parsing only.
-  # remotive: { enabled: true, categories: ["devrel"] }
-  # remoteok: { enabled: true }
-  # jooble: { enabled: true }      # needs JOOBLE_API_KEY env var (free key)
+                                    #   or enabled=false is never fetched.
+                                    # The defaults below need NO credentials, so a fresh
+                                    # copy of this file produces a real digest on first run.
+  remoteok: { enabled: true }       # remote-only board, no key
+  remotive:                         # remote-only board, no key. Omit `categories` for all.
+    enabled: true
+    categories: ["software-dev"]
+  ats_watchlist:                    # company boards (greenhouse|lever|ashby|workday), no key.
+    - { ats: "greenhouse", slug: "mozilla",       name: "Mozilla" }
+    - { ats: "greenhouse", slug: "wikimedia",     name: "Wikimedia Foundation" }
+    - { ats: "greenhouse", slug: "sourcegraph91", name: "Sourcegraph" }
+                                    #   Slugs are exact and can carry digits — find yours
+                                    #   with `jobhunter probe <careers-url>`; re-check the
+                                    #   whole list any time with `jobhunter probe --check`.
+  feeds:                            # any public RSS/Atom job feed
+    - { name: "weworkremotely", url: "https://weworkremotely.com/remote-jobs.rss",
+        company_from_title: true, region_location: true }
+                                    #   Optional per-feed parsing flags (both default off):
+                                    #   company_from_title (feed packs "Company: Title" into
+                                    #   one element) and region_location (scope lives in
+                                    #   <region>).
+  # --- Keyed sources: uncomment once the env vars are set. Enabling one WITHOUT
+  # --- its credentials just prints a warning and contributes nothing.
+  # adzuna: { enabled: true }       # needs ADZUNA_APP_ID + ADZUNA_APP_KEY (free)
+  # jooble: { enabled: true }       # needs JOOBLE_API_KEY (free)
 
 search_mode: "active_employed"      # active_unemployed | active_employed | passive_employed
                                     # posture preset (see specs/02) — sets defaults for

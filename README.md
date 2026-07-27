@@ -25,9 +25,17 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 cp specs/profile.example.yaml profile.yaml   # then edit it — this is the whole config
-export ADZUNA_APP_ID=... ADZUNA_APP_KEY=...  # free key: https://developer.adzuna.com
-
 jobhunter run
+```
+
+The example profile ships with the credential-free sources on (RemoteOK,
+Remotive, three Greenhouse boards and one RSS feed), so that first run returns
+real listings before you have configured anything. The keyed aggregators are
+commented out in the same block — uncomment them once their env vars are set:
+
+```bash
+export ADZUNA_APP_ID=... ADZUNA_APP_KEY=...  # free key: https://developer.adzuna.com
+export JOOBLE_API_KEY=...                    # free key: https://jooble.org/api/about
 ```
 
 The digest lands in `digests/YYYY-MM-DD.md` (plus a `.json` companion).

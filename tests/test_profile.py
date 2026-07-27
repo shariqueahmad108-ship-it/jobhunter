@@ -71,6 +71,26 @@ def test_example_profile_loads() -> None:
     assert isinstance(result, dict)
 
 
+def test_example_profile_enables_a_credential_free_source() -> None:
+    """A fresh `cp specs/profile.example.yaml profile.yaml` must actually fetch.
+
+    Adzuna and Jooble need env credentials; enabling only those makes the first
+    run of a fresh copy print a warning and produce an empty digest. At least one
+    keyless source must be on out of the box.
+    """
+    sources = load_profile(EXAMPLE_PROFILE)["sources"]
+    keyless_on = (
+        bool(sources.get("remoteok", {}).get("enabled"))
+        or bool(sources.get("remotive", {}).get("enabled"))
+        or bool(sources.get("ats_watchlist"))
+        or bool(sources.get("feeds"))
+    )
+    assert keyless_on, (
+        "specs/profile.example.yaml enables no credential-free source — a fresh "
+        "copy would return zero results on first run"
+    )
+
+
 def test_minimal_profile_loads(tmp_path: Path) -> None:
     """A minimal valid profile (only required fields) loads successfully."""
     p = _write(tmp_path, _minimal())
