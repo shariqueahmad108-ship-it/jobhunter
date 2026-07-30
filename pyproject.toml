@@ -50,8 +50,10 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-# Raise this as coverage improves; it is a ratchet, not a target.
-fail_under = 80
+# A ratchet, not a target: set just under the measured figure so a regression
+# fails but an unrelated PR isn't blocked by rounding. 88.39% measured
+# 2026-07-30 (everything >=90% except cli.py at 49% — the command handlers).
+fail_under = 87
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
