@@ -196,6 +196,14 @@ Cadence follows your `search_mode`: `active_unemployed` daily,
 `active_employed` each weekday, `passive_employed` weekly. The active preset is
 printed in each digest header.
 
+### Catching source rot
+
+Job boards go away quietly. `jobhunter doctor` is the manual check; the
+`Source canary` workflow runs it weekly against `specs/profile.example.yaml` and
+opens (or updates) a single issue when a source or board fails, closing it again
+once the canary is green. That keeps the quick start honest — if the example
+profile stops returning listings, the repo says so before a new user does.
+
 ## How the project is built
 
 JobHunter is spec-driven: `specs/` is the source of truth, and the code is

@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Weekly health check of the sources the shipped example profile enables.
+#
+# Why the EXAMPLE profile: profile.yaml is git-ignored (it holds real criteria),
+# so the only watchlist CI can see is specs/profile.example.yaml — which is
+# exactly the one that matters here. The README promises a fresh copy of that
+# file returns real listings on the first run; this is the job that notices when
+# that stops being true.
+name: Source canary
+
+on:
+  schedule:
+    - cron: "0 19 * * 0"  # Sundays 19:00 UTC — Monday morning in Australia
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: source-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Check the example profile's sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+
+      - name: jobhunter doctor
+        id: doctor
+        continue-on-error: true
+        # One invocation only: each run makes real requests to every source, so
+        # asking twice (once for JSON) would double the load on other people's
+        # APIs for no benefit.
+        run: |
+          cp specs/profile.example.yaml profile.yaml
+          jobhunter doctor --profile profile.yaml | tee doctor.txt
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo '### Source canary'
+            echo
+            echo '```'
+            cat doctor.txt 2>/dev/null || echo "doctor produced no output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # One issue, reused. A weekly cron that files a fresh issue every run
+      # trains you to ignore it; updating a single open issue does not.
+      - name: Open or update the canary issue
+        if: steps.doctor.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const TITLE = 'Source canary: a source or board is failing';
+            const report = fs.readFileSync('doctor.txt', 'utf8');
+            const body = [
+              'The weekly canary ran `jobhunter doctor` against',
+              '`specs/profile.example.yaml` and something failed.',
+              '',
+              'A dead board means the example profile no longer works out of the box —',
+              'fix the slug (`jobhunter probe <careers-url>`) or remove the entry, and',
+              'record it in `IMPLEMENTATION_PLAN.md` under the dead-source list so it is',
+              'not retried on a guess.',
+              '',
+              '```',
+              report.trim(),
+              '```',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'source',
+              per_page: 100,
+            });
+            const open = existing.data.find(i => i.title === TITLE);
+
+            if (open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                body,
+              });
+              core.notice(`Updated issue #${open.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: TITLE,
+                labels: ['source'],
+                body,
+              });
+              core.notice(`Filed issue #${created.data.number}`);
+            }
+
+      - name: Close the canary issue when everything is healthy
+        if: steps.doctor.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const TITLE = 'Source canary: a source or board is failing';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'source',
+              per_page: 100,
+            });
+            const open = existing.data.find(i => i.title === TITLE);
+            if (open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                body: 'Canary is green again — every source and board checked out. Closing.',
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.number,
+                state: 'closed',
+              });
+            }
+
+      - name: Fail the run if doctor failed
+        if: steps.doctor.outcome == 'failure'
+        run: exit 1

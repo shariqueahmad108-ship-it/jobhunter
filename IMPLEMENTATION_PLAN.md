@@ -54,4 +54,6 @@ next batch from the specs, or add items here by hand.
 - CI landed 2026-07-30 (`.github/workflows/ci.yml`); mypy blocking, coverage
   floor 95 against 96% measured, every module >=90%. No ratchets outstanding.
 - On this machine bare `pip` is Python 2.7. Always `python3 -m pip`.
+- Dead boards found by the weekly `Source canary` workflow belong in the
+  dead-source list below, so the loop never retries them on a guess.
 - Recurring local cleanup: `rm -rf _to_delete && git gc --prune=now`.
