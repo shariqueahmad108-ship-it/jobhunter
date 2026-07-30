@@ -19,12 +19,10 @@ Re-run `python3 -m pytest -q` before the next build iteration (the bare
 
 ## Work items (priority order)
 
-None queued. The CLI command-handler gap is closed (cli.py 49% -> 99%,
+None queued. Phases 0–5 are built, the golden fixture corpus expansion is
+merged, and the CLI command-handler coverage gap is closed (cli.py 49% -> 99%,
 tests/test_cli_commands.py). Run `./tools/spec-loop/loop.sh plan` to derive the
-next batch from the specs, or add items here by hand. Phases 0–5 are built and the golden fixture corpus expansion
-(spec 04 §Fixtures — 30 entries plus Stage 6/7 corpus acceptance tests) is
-merged. Run `./tools/spec-loop/loop.sh plan` to derive the next batch from the
-specs, or add items here by hand.
+next batch from the specs, or add items here by hand.
 
 ## Guardrails (do not re-plan these)
 
