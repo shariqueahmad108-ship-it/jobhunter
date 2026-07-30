@@ -19,15 +19,9 @@ Re-run `python3 -m pytest -q` before the next build iteration (the bare
 
 ## Work items (priority order)
 
-1. **CLI command-handler tests.** `src/jobhunter/cli.py` sits at 49% coverage
-   while every other module is >=90%: `_cmd_run`, `_cmd_dismiss`,
-   `_cmd_undismiss`, `_cmd_dismissed`, `_cmd_sources`, `_cmd_replay` and
-   `_cmd_probe` are essentially untested, so argument wiring, exit codes and
-   error paths are unverified. Drive each through `build_parser()` with a
-   `tmp_path` profile/state and stub adapters; assert exit code and stdout
-   shape, not digest wording. Done when cli.py is >=85%.
-
-Nothing else queued. Phases 0–5 are built and the golden fixture corpus expansion
+None queued. The CLI command-handler gap is closed (cli.py 49% -> 99%,
+tests/test_cli_commands.py). Run `./tools/spec-loop/loop.sh plan` to derive the
+next batch from the specs, or add items here by hand. Phases 0–5 are built and the golden fixture corpus expansion
 (spec 04 §Fixtures — 30 entries plus Stage 6/7 corpus acceptance tests) is
 merged. Run `./tools/spec-loop/loop.sh plan` to derive the next batch from the
 specs, or add items here by hand.
@@ -60,6 +54,6 @@ specs, or add items here by hand.
 - Add ATS watchlist entries only with slugs verified from a real careers-page
   URL — use `jobhunter probe` rather than guessing.
 - CI landed 2026-07-30 (`.github/workflows/ci.yml`); mypy blocking, coverage
-  floor 87 against 88.39% measured. No ratchets outstanding.
+  floor 95 against 96% measured, every module >=90%. No ratchets outstanding.
 - On this machine bare `pip` is Python 2.7. Always `python3 -m pip`.
 - Recurring local cleanup: `rm -rf _to_delete && git gc --prune=now`.

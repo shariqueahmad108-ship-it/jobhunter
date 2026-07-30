@@ -51,9 +51,9 @@ branch = true
 show_missing = true
 skip_covered = true
 # A ratchet, not a target: set just under the measured figure so a regression
-# fails but an unrelated PR isn't blocked by rounding. 88.39% measured
-# 2026-07-30 (everything >=90% except cli.py at 49% — the command handlers).
-fail_under = 87
+# fails but an unrelated PR isn't blocked by rounding. 96% measured 2026-07-30,
+# every module >=90%. Lowest are rss/snapshot at 90% and probe/rank at 92%.
+fail_under = 95
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
