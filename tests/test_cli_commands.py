@@ -1088,6 +1088,29 @@ def test_doctor_offline_validates_config_without_touching_the_network(workdir, c
     assert "profile" in out and "All checks passed" in out
 
 
+def test_shipped_example_profile_passes_doctor_offline(workdir, capsys):
+    """The canary's precondition: the example profile must exit 0 offline.
+
+    It ships with Adzuna commented out, so an absent-means-enabled reading of
+    the sources block made doctor exit 1 — which would have had the weekly
+    canary file an issue on every run regardless of board health.
+    """
+    import shutil
+
+    shutil.copy(_EXAMPLE_PROFILE, workdir / "profile.yaml")
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY")
+    }
+    with patch.dict(os.environ, env, clear=True):
+        code = _run_cli(["doctor", "--profile", "profile.yaml", "--offline"])
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "FAIL" not in out
+
+
 def test_doctor_reports_an_invalid_profile_and_stops_there(workdir, capsys):
     (workdir / "profile.yaml").write_text("identity: {}\n")
     assert _run_cli(["doctor", "--profile", "profile.yaml", "--offline"]) == 1
@@ -1105,7 +1128,7 @@ def test_doctor_json_is_parseable(workdir, capsys):
     assert any(c["kind"] == "profile" for c in data["checks"])
 
 
-def test_doctor_fails_when_an_enabled_source_has_no_credential(workdir, capsys):
+def test_doctor_fails_when_an_explicitly_enabled_source_has_no_credential(workdir, capsys):
     profile = _profile_dict()
     profile["sources"] = {"jooble": {"enabled": True}}
     (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))

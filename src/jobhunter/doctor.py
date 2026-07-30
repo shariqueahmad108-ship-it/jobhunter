@@ -80,13 +80,25 @@ _CREDENTIALS: dict[str, tuple[str, ...]] = {
     "jooble": ("JOOBLE_API_KEY",),
 }
 
+# Sources `_build_adapters` constructs unless the profile disables them. Keep in
+# step with cli._build_adapters, which is the behaviour this mirrors.
+_DEFAULT_ON = frozenset({"adzuna"})
+
 
 def check_credentials(profile: dict, env: Optional[dict] = None) -> list[Check]:
-    """A source enabled without its credential is a misconfiguration, not a warning.
+    """A source EXPLICITLY enabled without its credential is broken. Absent is not.
 
-    The `run` command prints a warning and carries on, which is right for a
-    daily run. doctor is being asked "is anything broken", and a source you
-    switched on that cannot possibly fetch is broken.
+    The distinction matters more than it looks. Adzuna is active-unless-disabled
+    in `_build_adapters`, and the shipped example profile leaves it commented
+    out — so treating "absent" as "enabled" made `doctor` fail for a source the
+    user never turned on, and would have made the weekly canary file an issue
+    every run forever.
+
+    - explicitly `enabled: true`, credential missing  -> FAIL (you asked for a
+      source that cannot possibly fetch)
+    - absent from `sources:`, credential missing      -> WARN (probably not
+      wanted; say so once, don't fail the command)
+    - explicitly `enabled: false`                     -> SKIP
     """
     environ = env if env is not None else dict(os.environ)
     sources = profile.get("sources") or {}
@@ -94,21 +106,31 @@ def check_credentials(profile: dict, env: Optional[dict] = None) -> list[Check]:
 
     for name, variables in _CREDENTIALS.items():
         cfg = sources.get(name)
-        # Adzuna is active unless explicitly disabled; the rest are opt-in.
-        if name == "adzuna":
-            enabled = cfg.get("enabled", True) if cfg is not None else True
-        else:
-            enabled = bool((cfg or {}).get("enabled"))
-        if not enabled:
+        explicit = cfg is not None and "enabled" in cfg
+        if explicit and not cfg["enabled"]:
             checks.append(Check("credential", name, SKIP, "not enabled"))
             continue
+        if not explicit and name not in _DEFAULT_ON:
+            checks.append(Check("credential", name, SKIP, "not enabled"))
+            continue
+
         missing = [v for v in variables if not environ.get(v)]
-        if missing:
+        if not missing:
+            checks.append(Check("credential", name, OK, "credential present"))
+        elif explicit:
             checks.append(
                 Check("credential", name, FAIL, f"enabled but {', '.join(missing)} not set")
             )
         else:
-            checks.append(Check("credential", name, OK, "credential present"))
+            checks.append(
+                Check(
+                    "credential",
+                    name,
+                    WARN,
+                    f"active by default but {', '.join(missing)} not set — "
+                    f"set sources.{name}.enabled: false to silence",
+                )
+            )
     return checks
 
 

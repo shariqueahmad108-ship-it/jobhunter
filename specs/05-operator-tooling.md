@@ -193,7 +193,7 @@ Runs an ordered set of checks and prints one row each, then a summary:
 | `profile` | the profile loads and validates | a failure stops the run — nothing downstream is meaningful |
 | `fx` | `fx_rates.yaml` exists and is under 90 days old | absent or stale is a **warning** |
 | `state` | the state file loads, or is absent | absent is fine: a first run creates it |
-| `credential` | each enabled keyed source has its env vars | enabled without a credential is a **failure** |
+| `credential` | each enabled keyed source has its env vars | **explicitly** enabled without a credential is a failure; active-by-default-but-absent is a warning |
 | `source` | one live query per enabled source returns without error | zero listings is a **warning**, an exception is a failure |
 | `board` | every `ats_watchlist` entry is confirmed | a dead slug is a **failure** — this is the check board rot needs |
 
@@ -215,6 +215,11 @@ whereas `doctor` is answering "is anything broken".
 - A dead watchlist slug fails the command and names `ats/slug`, so a scheduled
   run can act on it.
 - Stale `fx_rates.yaml` warns and exits 0.
+- A keyed source that is **absent** from the `sources:` block warns rather than
+  fails when its credential is unset, and a source explicitly `enabled: true`
+  without its credential fails. The shipped `specs/profile.example.yaml` — which
+  comments its keyed sources out — must exit 0 under `--offline`, since the
+  scheduled canary depends on a clean baseline to be worth reading.
 - One bad source does not prevent the remaining sources from being checked.
 - `--offline` makes no network requests and still validates profile, state and
   credentials.

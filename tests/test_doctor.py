@@ -120,19 +120,36 @@ def test_absent_fx_rates_warn():
 # ---------------------------------------------------------------------------
 
 
-def test_adzuna_is_active_by_default_and_fails_without_credentials():
+def test_adzuna_absent_from_the_profile_warns_rather_than_fails():
+    """The shipped example profile comments Adzuna out; that must not fail doctor.
+
+    Regression test for the bug that would have made the weekly canary file an
+    issue on every run.
+    """
     checks = check_credentials(_profile(), env={})
+    adzuna = [c for c in checks if c.target == "adzuna"][0]
+    assert adzuna.status == WARN
+    assert "enabled: false to silence" in adzuna.detail
+
+
+def test_adzuna_explicitly_enabled_without_credentials_fails():
+    checks = check_credentials(_profile(adzuna={"enabled": True}), env={})
     adzuna = [c for c in checks if c.target == "adzuna"][0]
     assert adzuna.status == FAIL
     assert "ADZUNA_APP_ID" in adzuna.detail and "ADZUNA_APP_KEY" in adzuna.detail
 
 
 def test_partial_credentials_name_only_the_missing_variable():
-    checks = check_credentials(_profile(), env={"ADZUNA_APP_ID": "x"})
+    checks = check_credentials(_profile(adzuna={"enabled": True}), env={"ADZUNA_APP_ID": "x"})
     adzuna = [c for c in checks if c.target == "adzuna"][0]
     assert adzuna.status == FAIL
     assert "ADZUNA_APP_KEY" in adzuna.detail
     assert "ADZUNA_APP_ID" not in adzuna.detail
+
+
+def test_adzuna_with_credentials_passes_even_when_absent_from_the_profile():
+    checks = check_credentials(_profile(), env={"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"})
+    assert [c.status for c in checks if c.target == "adzuna"] == [OK]
 
 
 def test_disabled_source_is_skipped_not_failed():
@@ -141,6 +158,7 @@ def test_disabled_source_is_skipped_not_failed():
 
 
 def test_jooble_is_opt_in_so_absent_config_is_skipped():
+    """An opt-in source that was never configured is silence, not a warning."""
     checks = check_credentials(_profile(), env={})
     assert [c.status for c in checks if c.target == "jooble"] == [SKIP]
 
@@ -150,11 +168,10 @@ def test_enabled_jooble_with_key_passes():
     assert [c.status for c in checks if c.target == "jooble"] == [OK]
 
 
-def test_enabled_source_without_its_key_is_a_failure_not_a_warning():
+def test_explicitly_enabled_source_without_its_key_is_a_failure():
     """`run` warns and carries on; doctor is asked whether anything is broken."""
     checks = check_credentials(_profile(jooble={"enabled": True}), env={})
-    jooble = [c for c in checks if c.target == "jooble"][0]
-    assert jooble.status == FAIL
+    assert [c.status for c in checks if c.target == "jooble"] == [FAIL]
 
 
 def test_empty_string_credential_counts_as_missing():

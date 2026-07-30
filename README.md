@@ -103,6 +103,7 @@ profile     profile.yaml            ok    valid
 fx          fx_rates.yaml           warn  104 days old — refresh exchange rates
 state       state/state.yaml        ok    loads
 credential  adzuna                  FAIL  enabled but ADZUNA_APP_KEY not set
+credential  jooble                  skip  not enabled
 source      remoteok                ok    112 listings for 'staff engineer'
 source      remotive                warn  reachable but 0 listings for 'staff engineer'
 board       greenhouse/mozilla      ok    56 jobs (Mozilla)
