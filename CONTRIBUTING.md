@@ -35,6 +35,35 @@ The specs, in reading order:
 your changes should not conflict with it: keep changes small, one
 concern per branch, and validated by tests.
 
+## Where things live
+
+`src/jobhunter/` is one module per pipeline stage, in the order the data moves.
+The fastest way to find code is to decide which stage owns the behaviour:
+
+| Module | Owns |
+|---|---|
+| `cli.py` | Argument parsing, command handlers, wiring stages together |
+| `profile.py` | Loading and validating `profile.yaml`, fx-rate merging |
+| `ingest.py` | The `SourceAdapter` protocol every source implements |
+| `adapters/` | One module per source: `adzuna`, `jooble`, `remoteok`, `remotive`, `ats` (Greenhouse/Lever/Ashby/Workday), `rss` |
+| `normalize.py` | Salary parsing, location parsing, HTML stripping, seniority inference |
+| `dedupe.py` | Merging the same role seen from several sources |
+| `filter.py` | Stage 4 — the hard requirements, and the unknown-data policy |
+| `score.py` | Stage 5 — the weighted-sum scorer and its six components |
+| `rank.py` | Stage 6 — ordering and the display threshold |
+| `digest.py` | Stage 7 — Markdown, HTML, JSON and CSV rendering |
+| `state.py` | Seen-state, dismissals, short-id resolution |
+| `model.py` | The dataclasses every stage passes around, plus id derivation |
+| `pipeline.py` | Running the stages in order, request budget, per-source counters |
+| `snapshot.py` | Saving and loading run snapshots for `replay` |
+| `source_stats.py` | Per-source contribution history for `jobhunter sources` |
+| `probe.py` | ATS board detection for `jobhunter probe` |
+| `doctor.py` | The health checks behind `jobhunter doctor` |
+
+Common questions: salary parsing is `normalize.py`; *whether* a salary passes is
+`filter.py`; how much it contributes to the score is `score.py`. Each module has
+a matching `tests/test_<module>.py`.
+
 ## What makes a good contribution
 
 In rough order of usefulness:

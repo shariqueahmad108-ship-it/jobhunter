@@ -398,6 +398,57 @@ def test_run_warns_but_succeeds_when_digest_write_fails(workdir, monkeypatch, ca
     assert "could not write digest" in capsys.readouterr().err
 
 
+def test_run_warns_but_succeeds_when_csv_write_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", data_format="csv")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    real_write = Path.write_text
+
+    def failing_write(self, *args, **kwargs):
+        if self.suffix == ".csv":
+            raise OSError("disk full")
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not write CSV file" in capsys.readouterr().err
+
+
+def test_run_warns_but_succeeds_when_html_write_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", format="html")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    real_write = Path.write_text
+
+    def failing_write(self, *args, **kwargs):
+        if self.suffix == ".html":
+            raise OSError("disk full")
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not write HTML digest" in capsys.readouterr().err
+
+
+def test_run_warns_but_succeeds_when_json_write_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", keep_raw=False)
+    _stub_pipeline(monkeypatch, [_result()])
+
+    real_write = Path.write_text
+
+    def failing_write(self, *args, **kwargs):
+        if self.suffix == ".json":
+            raise OSError("disk full")
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not write data file" in capsys.readouterr().err
+
+
 def test_run_warns_but_succeeds_when_state_save_fails(workdir, monkeypatch, capsys):
     _write_profile(workdir / "profile.yaml")
     _stub_pipeline(monkeypatch, [_result()])

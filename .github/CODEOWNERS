@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Default owner for everything.
+*                       @justinmclean
+
+# The specs are the source of truth for behaviour; a change here needs the
+# maintainer's eyes even when the code change looks obvious.
+/specs/                 @justinmclean
+
+# Build-loop operational rules.
+/AGENTS.md              @justinmclean
+/tools/spec-loop/       @justinmclean

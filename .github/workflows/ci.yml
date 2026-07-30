@@ -131,6 +131,17 @@ jobs:
           print('example profile loaded OK')
           "
 
+  lock:
+    name: uv.lock is in sync
+    runs-on: ubuntu-latest
+    # Skipped while uv.lock is untracked; becomes a real gate the moment it is
+    # committed, so a pyproject dependency edit can't silently outrun the lock.
+    if: hashFiles('uv.lock') != ''
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v5
+      - run: uv lock --check
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
