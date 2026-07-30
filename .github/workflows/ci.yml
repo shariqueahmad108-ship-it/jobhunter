@@ -83,11 +83,10 @@ jobs:
           path: coverage.xml
 
   types:
-    name: Types (mypy, advisory)
+    name: Types (mypy)
     runs-on: ubuntu-latest
-    # Advisory while annotations are filled in. Flip continue-on-error to false
-    # (and tighten [tool.mypy] in pyproject.toml) once this is clean.
-    continue-on-error: true
+    # Blocking as of 2026-07-30: clean under the gradual [tool.mypy] settings.
+    # Tighten those one flag at a time; disallow_untyped_defs is the next step.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -26,7 +26,7 @@ There is nothing person-specific in the code.
 ```bash
 git clone <this repo> && cd JobHunter
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m pip install -e ".[dev]"
 
 cp specs/profile.example.yaml profile.yaml   # then edit it — this is the whole config
 jobhunter run

@@ -65,7 +65,7 @@ code.
 ```
 git clone <your fork> && cd JobHunter
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m pip install -e ".[dev]"
 ```
 
 Install the pre-commit hooks once — they catch the whole class of mistakes
@@ -81,10 +81,10 @@ Validate your changes with:
 ```
 python3 -m pytest -q
 ruff check src tests tools
-mypy src/jobhunter          # advisory for now
+mypy src/jobhunter
 ```
 
-The first two must pass; CI runs them on Python 3.11, 3.12 and 3.13, plus a
+All three must pass; CI runs them on Python 3.11, 3.12 and 3.13, plus a
 coverage floor and a cold install of the README quick start.
 
 The test suite is hermetic: `tests/conftest.py` blocks real sockets, so an
