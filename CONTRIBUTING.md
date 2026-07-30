@@ -135,6 +135,30 @@ The suite is fast (under two seconds) and hermetic. Keep it that way:
 - Adaptor PRs must not add sources that require scraping in violation
   of a site's terms of service. API and public-feed sources only.
 
+## Releasing
+
+Releases are cut by tagging. `pyproject.toml` holds the version, and
+`.github/workflows/release.yml` refuses to build if the tag and that version
+disagree.
+
+1. Make sure `main` is green and `make check` passes locally.
+2. Move the `## [Unreleased]` items in `CHANGELOG.md` under a new version
+   heading with today's date, and update the compare links at the bottom.
+3. Bump `version` in `pyproject.toml` if it does not already match.
+4. Commit, then tag and push:
+
+   ```
+   git tag -a v0.1.0 -m "JobHunter 0.1.0"
+   git push origin main --follow-tags
+   ```
+
+5. The release workflow builds an sdist and wheel, runs `twine check`, verifies
+   the tag against the pyproject version, and opens a **draft** GitHub release
+   with generated notes. Review it, paste in the changelog entry, publish.
+
+Nothing is published to PyPI. `pipx install git+https://github.com/justinmclean/jobhunter`
+installs from a tag, which is the intended distribution for a personal tool.
+
 ## Licence
 
 By contributing you agree that your contributions are licensed under

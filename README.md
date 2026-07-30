@@ -253,6 +253,8 @@ Phases 0–5 are built: the pipeline runs end to end, with digests, dismissals,
 multi-profile support, source contribution stats, offline replay and ATS
 probing.
 
+See [CHANGELOG.md](CHANGELOG.md) for what landed in each release.
+
 ## License
 
 Apache-2.0 (see the SPDX headers on source files).
