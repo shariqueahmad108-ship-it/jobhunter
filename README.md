@@ -181,7 +181,7 @@ A change to a pipeline stage must add or extend that stage's test module.
 
 Phases 0–5 are built: the pipeline runs end to end, with digests, dismissals,
 multi-profile support, source contribution stats, offline replay and ATS
-probing. In progress: expanding the golden fixture corpus.
+probing.
 
 ## License
 
