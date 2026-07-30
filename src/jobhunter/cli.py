@@ -20,7 +20,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import __version__
+from . import __version__, doctor
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .ingest import SourceAdapter
 from .pipeline import run as pipeline_run
@@ -671,6 +671,45 @@ def _cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Answer 'is anything broken' about the config and every enabled source.
+
+    Deliberately does one live query per source: that is the only way to tell a
+    dead board from a quiet one, and the reason this exists rather than being
+    folded into `run`. See specs/05-operator-tooling.md §5.4.
+    """
+    profile_path = Path(args.profile)
+    state_path = Path(args.state)
+    slug_suffix = _profile_slug(profile_path)
+    if slug_suffix and str(state_path) == str(_DEFAULT_STATE):
+        state_path = state_path.with_name(f"state-{slug_suffix}.yaml")
+
+    checks: list[doctor.Check] = []
+    profile_check, profile = doctor.check_profile(profile_path, load_profile)
+    checks.append(profile_check)
+
+    if profile is None:
+        # Nothing downstream is meaningful without a valid profile.
+        print(doctor.format_json(checks) if args.json else doctor.format_table(checks))
+        return doctor.exit_code(checks)
+
+    _fx_path = "fx_rates.yaml"
+    checks.append(doctor.check_fx_rates(_fx_path, fx_rates_age_days(_fx_path)))
+    checks.append(doctor.check_state(state_path, load_state))
+    checks.extend(doctor.check_credentials(profile))
+
+    if not args.offline:
+        checks.extend(doctor.check_sources(_build_adapters(profile), profile))
+        sources = profile.get("sources") or {}
+        watchlist = sources.get("ats_watchlist") or profile.get("queries", {}).get(
+            "ats_watchlist"
+        ) or []
+        checks.extend(doctor.check_boards(watchlist, probe_check))
+
+    print(doctor.format_json(checks) if args.json else doctor.format_table(checks))
+    return doctor.exit_code(checks)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jobhunter",
@@ -812,6 +851,35 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Path to run-state file for dismissed ids (default: {_DEFAULT_STATE})",
     )
     replay_p.set_defaults(func=_cmd_replay)
+    doctor_p = sub.add_parser(
+        "doctor",
+        help="Check the profile, credentials and every enabled source; "
+        "exit 1 if anything is broken.",
+    )
+    doctor_p.add_argument(
+        "--profile",
+        default=str(_DEFAULT_PROFILE),
+        metavar="PATH",
+        help=f"Path to profile.yaml (default: {_DEFAULT_PROFILE})",
+    )
+    doctor_p.add_argument(
+        "--state",
+        default=str(_DEFAULT_STATE),
+        metavar="PATH",
+        help=f"Path to run-state file (default: {_DEFAULT_STATE})",
+    )
+    doctor_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of a table (for schedulers and CI).",
+    )
+    doctor_p.add_argument(
+        "--offline",
+        action="store_true",
+        help="Skip the live source and board checks; validate config only.",
+    )
+    doctor_p.set_defaults(func=_cmd_doctor)
+
     probe_p = sub.add_parser(
         "probe",
         help="Detect ATS boards from a careers URL/slug, or check the profile watchlist.",

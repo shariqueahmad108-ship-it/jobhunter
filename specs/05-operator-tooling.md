@@ -169,3 +169,55 @@ a digest weeks later.
   paste (config stays human-owned).
 - Every probe is rate-limited and identifies itself via the project's standard
   User-Agent, per `04-technical-plan.md` §Data sources.
+
+## 5.4 — Configuration and source health (`doctor`) *(built)*
+
+**Problem.** The pipeline is quiet by design: a board that 404s, a source that is
+rate-limited, a credential that was never exported, and a keyword that simply
+matched nothing all produce the same observable result — a digest without those
+listings. Board rot has therefore been found by hand, weeks late, by noticing a
+thin digest (Linux Foundation, Confluent, HashiCorp, fossjobs). `probe --check`
+covers ATS boards only, and says nothing about credentials, aggregator health,
+or whether the profile still validates.
+
+**Behavior.**
+
+```
+jobhunter doctor [--profile P] [--state S] [--json] [--offline]
+```
+
+Runs an ordered set of checks and prints one row each, then a summary:
+
+| Check | Passes when | Notes |
+|---|---|---|
+| `profile` | the profile loads and validates | a failure stops the run — nothing downstream is meaningful |
+| `fx` | `fx_rates.yaml` exists and is under 90 days old | absent or stale is a **warning** |
+| `state` | the state file loads, or is absent | absent is fine: a first run creates it |
+| `credential` | each enabled keyed source has its env vars | enabled without a credential is a **failure** |
+| `source` | one live query per enabled source returns without error | zero listings is a **warning**, an exception is a failure |
+| `board` | every `ats_watchlist` entry is confirmed | a dead slug is a **failure** — this is the check board rot needs |
+
+`--offline` skips the `source` and `board` checks, validating configuration only.
+`--json` emits `{"ok": bool, "checks": [...]}` for a scheduler to act on.
+
+Exit code is **1 if any check failed**, 0 otherwise; warnings never fail the
+command. A source enabled without its credential is a failure here even though
+`run` treats it as a warning — `run` is doing a day's work and should continue,
+whereas `doctor` is answering "is anything broken".
+
+**Acceptance criteria**
+
+- An invalid profile fails, prints the validator's own error, and suppresses
+  every later check rather than reporting misleading downstream results.
+- A source that raises is reported as failed with the exception type; a source
+  that returns zero listings is reported as reachable-but-empty and does not
+  fail the command. The two are never conflated.
+- A dead watchlist slug fails the command and names `ats/slug`, so a scheduled
+  run can act on it.
+- Stale `fx_rates.yaml` warns and exits 0.
+- One bad source does not prevent the remaining sources from being checked.
+- `--offline` makes no network requests and still validates profile, state and
+  credentials.
+- `--json` output parses and its `ok` field agrees with the exit code.
+- The command never writes to any file (config and state stay untouched).
+

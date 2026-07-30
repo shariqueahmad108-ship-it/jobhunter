@@ -88,9 +88,28 @@ short id in backticks is what you pass to `jobhunter dismiss`.
 | `jobhunter sources [--last N] [--json]` | Per-source contribution stats across runs — which sources actually earn their requests. |
 | `jobhunter replay RUN-FILE [--set K=V] [--diff OTHER]` | Re-score a saved run offline, with no network calls. |
 | `jobhunter probe URL_OR_SLUG` / `probe --check` | Detect which ATS a company careers page uses, or re-check every board in your watchlist. |
+| `jobhunter doctor [--offline] [--json]` | Check the profile, credentials and every enabled source; exits 1 if anything is broken. |
 
 `replay` is the one to reach for when tuning: run once, then replay the same
 snapshot with different weights or thresholds and `--diff` the shortlists.
+
+`doctor` is the one to reach for when a digest looks thin. It distinguishes the
+four cases the pipeline otherwise renders identically — a dead board, a
+rate-limited source, a missing credential, and a keyword that matched nothing:
+
+```
+$ jobhunter doctor
+profile     profile.yaml            ok    valid
+fx          fx_rates.yaml           warn  104 days old — refresh exchange rates
+state       state/state.yaml        ok    loads
+credential  adzuna                  FAIL  enabled but ADZUNA_APP_KEY not set
+source      remoteok                ok    112 listings for 'staff engineer'
+source      remotive                warn  reachable but 0 listings for 'staff engineer'
+board       greenhouse/mozilla      ok    56 jobs (Mozilla)
+board       lever/hashicorp         FAIL  dead — 404
+
+1 failing, 2 warning — see FAIL rows above.
+```
 
 ## Sources
 

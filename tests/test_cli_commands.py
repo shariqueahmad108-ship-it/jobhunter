@@ -1026,6 +1026,127 @@ def test_probe_single_passes_the_ats_hint_through(workdir, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+
+
+def test_doctor_offline_validates_config_without_touching_the_network(workdir, capsys):
+    _write_profile(workdir / "profile.yaml")
+    assert _run_cli(["doctor", "--profile", "profile.yaml", "--offline"]) == 0
+    out = capsys.readouterr().out
+    assert "profile" in out and "All checks passed" in out
+
+
+def test_doctor_reports_an_invalid_profile_and_stops_there(workdir, capsys):
+    (workdir / "profile.yaml").write_text("identity: {}\n")
+    assert _run_cli(["doctor", "--profile", "profile.yaml", "--offline"]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    # Nothing downstream is meaningful without a profile, so no source rows.
+    assert "source" not in out
+
+
+def test_doctor_json_is_parseable(workdir, capsys):
+    _write_profile(workdir / "profile.yaml")
+    assert _run_cli(["doctor", "--profile", "profile.yaml", "--offline", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is True
+    assert any(c["kind"] == "profile" for c in data["checks"])
+
+
+def test_doctor_fails_when_an_enabled_source_has_no_credential(workdir, capsys):
+    profile = _profile_dict()
+    profile["sources"] = {"jooble": {"enabled": True}}
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))
+
+    env = {k: v for k, v in os.environ.items() if k != "JOOBLE_API_KEY"}
+    with patch.dict(os.environ, env, clear=True):
+        code = _run_cli(["doctor", "--profile", "profile.yaml", "--offline"])
+
+    assert code == 1
+    assert "JOOBLE_API_KEY" in capsys.readouterr().out
+
+
+def test_doctor_queries_sources_and_probes_boards_when_online(workdir, monkeypatch, capsys):
+    profile = _profile_dict()
+    profile["sources"] = {
+        "adzuna": {"enabled": False},
+        "ats_watchlist": [{"ats": "greenhouse", "slug": "mozilla", "name": "Mozilla"}],
+    }
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))
+
+    class _Stub:
+        name = "stub"
+
+        def search(self, keyword, location, max_results):
+            return [{"a": 1}]
+
+        def normalize(self, raw):  # pragma: no cover - unused
+            raise NotImplementedError
+
+    monkeypatch.setattr(cli, "_build_adapters", lambda p: [_Stub()])
+    monkeypatch.setattr(
+        cli,
+        "probe_check",
+        lambda wl: [
+            BoardStatus(
+                entry=wl[0],
+                result=ProbeResult(
+                    ats="greenhouse", slug="mozilla", job_count=56,
+                    oldest_date=None, newest_date=None,
+                ),
+                error=None,
+            )
+        ],
+    )
+
+    assert _run_cli(["doctor", "--profile", "profile.yaml"]) == 0
+    out = capsys.readouterr().out
+    assert "stub" in out and "greenhouse/mozilla" in out and "56 jobs" in out
+
+
+def test_doctor_exits_1_on_a_dead_board(workdir, monkeypatch, capsys):
+    profile = _profile_dict()
+    profile["sources"] = {
+        "adzuna": {"enabled": False},
+        "ats_watchlist": [{"ats": "lever", "slug": "hashicorp"}],
+    }
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))
+
+    monkeypatch.setattr(cli, "_build_adapters", lambda p: [])
+    monkeypatch.setattr(
+        cli, "probe_check", lambda wl: [BoardStatus(entry=wl[0], result=None, error="404")]
+    )
+
+    assert _run_cli(["doctor", "--profile", "profile.yaml"]) == 1
+    assert "dead" in capsys.readouterr().out
+
+
+def test_doctor_named_profile_checks_the_slugged_state_file(workdir, capsys):
+    _write_profile(workdir / "profile-ospo.yaml")
+    state = workdir / "state" / "state-profile-ospo.yaml"
+    state.parent.mkdir()
+    state.write_text("schema_version: 99\n")
+
+    assert _run_cli(["doctor", "--profile", "profile-ospo.yaml", "--offline"]) == 1
+    out = capsys.readouterr().out
+    assert "state-profile-ospo.yaml" in out
+
+
+def test_doctor_warns_on_stale_fx_rates_without_failing(workdir, capsys):
+    import time
+
+    _write_profile(workdir / "profile.yaml")
+    fx = workdir / "fx_rates.yaml"
+    fx.write_text("base: AUD\nrates:\n  USD: 1.5\n")
+    old = time.time() - 120 * 86400
+    os.utime(fx, (old, old))
+
+    assert _run_cli(["doctor", "--profile", "profile.yaml", "--offline"]) == 0
+    assert "120 days old" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
