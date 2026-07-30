@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# Install once:  pip install pre-commit && pre-commit install
+# Run on everything:  pre-commit run --all-files
+default_language_version:
+  python: python3
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: mixed-line-ending
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(src|tests|tools)/
+
+  - repo: local
+    hooks:
+      - id: spdx-header
+        name: SPDX licence header
+        entry: python3 tools/check_spdx.py
+        language: system
+        types_or: [python, shell]
+        pass_filenames: true
+
+      # The one mistake in this repo that would actually hurt: committing real
+      # criteria or credentials. .gitignore covers it; this is the backstop.
+      - id: no-personal-files
+        name: no personal profile or secrets staged
+        entry: python3 tools/check_no_personal.py
+        language: system
+        pass_filenames: true

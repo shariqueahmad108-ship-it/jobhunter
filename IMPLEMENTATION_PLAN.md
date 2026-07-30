@@ -51,4 +51,8 @@ specs, or add items here by hand.
   over a ~7-job board), I Work for NSW (Taleo-backed, no feed).
 - Add ATS watchlist entries only with slugs verified from a real careers-page
   URL — use `jobhunter probe` rather than guessing.
+- CI landed 2026-07-30 (`.github/workflows/ci.yml`). Two ratchets left for the
+  user: raise `fail_under` in `[tool.coverage.report]` once the real number is
+  known, and drop `continue-on-error` from the mypy job once `mypy
+  src/jobhunter` is clean.
 - Recurring local cleanup: `rm -rf _to_delete && git gc --prune=now`.

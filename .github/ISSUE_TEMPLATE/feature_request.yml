@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Feature request
+description: Suggest a change in behaviour
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Out of scope by design: LLMs anywhere in the pipeline, automated
+        applications, application tracking, a web UI or hosted service.
+        See `specs/01-product-spec.md`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What does the current pipeline make hard or impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: Which stage changes, and which spec section would need amending?
+    validations:
+      required: true

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug report
+description: Something behaves differently from what the specs say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste your real `profile.yaml`, API keys, or a digest containing
+        personal criteria. Reduce to the smallest config that reproduces it.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the command you ran and the output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: If a spec says otherwise, quote it (file and section).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A trimmed profile snippet, or a `replay` snapshot with a stage's inputs.
+      render: yaml
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: "v0.1.0 or git rev"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "python3 -V output"
+    validations:
+      required: true

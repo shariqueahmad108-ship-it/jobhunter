@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Source problem or new source
+description: A job source is dead, changed shape, or should be added
+labels: [source]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `ADAPTORS.md` first. Sources that are out of scope by decision —
+        LinkedIn, direct Seek, Careerjet, scraping without an API or public
+        feed — will be closed; see the guardrails in `IMPLEMENTATION_PLAN.md`.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [Existing source is broken, New source proposal]
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source / board
+      placeholder: "greenhouse:mozilla, remotive, https://example.com/careers"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >-
+        For a break: the failing URL and status code. For a new source: a
+        verified endpoint URL that returns JSON or RSS, plus a sample payload.
+        Verified means you fetched it — `jobhunter probe URL` output is ideal.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Access model
+      options:
+        - label: This source has a public API or feed usable by an individual (no publisher agreement, no scraping against its terms).
+          required: true

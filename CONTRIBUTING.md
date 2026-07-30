@@ -1,9 +1,12 @@
+<!-- SPDX-License-Identifier: Apache-2.0
+     https://www.apache.org/licenses/LICENSE-2.0 -->
+
 # Contributing to JobHunter
 
 Thanks for your interest in contributing. JobHunter is a small,
 deliberately scoped project, and contributions that fit that scope are
 very welcome, particularly new source adaptors (see
-`docs/ADAPTORS.md`).
+`ADAPTORS.md`).
 
 ## Before you start
 
@@ -37,7 +40,7 @@ concern per branch, and validated by tests.
 In rough order of usefulness:
 
 1. **New source adaptors.** The highest-value contribution. See
-   `docs/ADAPTORS.md` for the contract and a checklist.
+   `ADAPTORS.md` for the contract and a checklist.
 2. **Bug fixes with a failing test.** A test that demonstrates the bug
    makes review fast and prevents regression.
 3. **Fixture corpus additions.** Real-world listing shapes that the
@@ -65,14 +68,29 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+Install the pre-commit hooks once — they catch the whole class of mistakes
+that matters here (stray whitespace, a missing SPDX header, and above all a
+staged `profile.yaml` or `.env`):
+
+```
+pre-commit install
+```
+
 Validate your changes with:
 
 ```
 python3 -m pytest -q
-ruff check src tests
+ruff check src tests tools
+mypy src/jobhunter          # advisory for now
 ```
 
-Both must pass. A change to a pipeline stage must add or extend that
+The first two must pass; CI runs them on Python 3.11, 3.12 and 3.13, plus a
+coverage floor and a cold install of the README quick start.
+
+The test suite is hermetic: `tests/conftest.py` blocks real sockets, so an
+adapter test that forgets to mock `httpx` fails with a clear error instead of
+hitting a live job board. A test that genuinely needs the network must be
+marked `@pytest.mark.allow_network` — CI deselects those. A change to a pipeline stage must add or extend that
 stage's test module.
 
 ## Pull requests

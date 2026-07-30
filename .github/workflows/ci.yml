@@ -1,0 +1,145 @@
+# SPDX-License-Identifier: Apache-2.0
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: Lint (ruff + SPDX headers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: ruff check
+        run: ruff check src tests tools
+      - name: SPDX headers
+        run: python3 tools/check_spdx.py
+
+  test:
+    name: Tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # -m "not allow_network" keeps CI off live job boards; tests/conftest.py
+      # blocks stray sockets so a mocking mistake fails loudly instead of
+      # depending on a board being up.
+      - name: pytest
+        run: python -m pytest -q -m "not allow_network"
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: pytest --cov
+        run: |
+          python -m pytest -q -m "not allow_network" \
+            --cov --cov-report=term-missing --cov-report=xml
+      - name: Coverage summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          root = ET.parse("coverage.xml").getroot()
+          print(f"### Coverage: {float(root.get('line-rate', 0)) * 100:.1f}%")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  types:
+    name: Types (mypy, advisory)
+    runs-on: ubuntu-latest
+    # Advisory while annotations are filled in. Flip continue-on-error to false
+    # (and tighten [tool.mypy] in pyproject.toml) once this is clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: mypy src/jobhunter
+
+  spec-loop:
+    name: Spec-loop shell suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck tools/spec-loop/*.sh tools/spec-loop/tests/*.sh || true
+      - name: runner fixtures
+        run: bash tools/spec-loop/tests/test_runner_fixtures.sh
+
+  quickstart:
+    name: README quick start (cold install)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Reproduces the README quick start exactly, minus the network call, so
+      # the out-of-the-box path cannot silently rot again.
+      - name: Install as a user would
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --quiet -e .
+      - name: Example profile loads and the CLI runs
+        run: |
+          cp specs/profile.example.yaml profile.yaml
+          .venv/bin/jobhunter --help
+          .venv/bin/jobhunter dismissed
+          .venv/bin/python -c "
+          from jobhunter.profile import load_profile
+          p = load_profile('profile.yaml')
+          print('example profile loaded OK')
+          "
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]" pip-audit
+      - run: pip-audit --skip-editable
