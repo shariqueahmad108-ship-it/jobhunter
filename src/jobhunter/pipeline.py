@@ -20,6 +20,18 @@ from jobhunter.rank import run as rank_run
 from jobhunter.score import run as score_run
 
 
+def _request_count(adapter: SourceAdapter) -> Optional[int]:
+    """Return an adapter's own HTTP request count, or None if it doesn't keep one.
+
+    Paginating adapters expose ``requests_made`` so one query can be billed as
+    several requests; the rest are billed one per query. This is a function
+    rather than an inline ``hasattr`` because mypy only narrows ``hasattr`` at
+    the call site, not through a boolean stored in a variable.
+    """
+    count = getattr(adapter, "requests_made", None)
+    return count if isinstance(count, int) else None
+
+
 def run_with_snapshot(
     profile: dict,
     adapters: list[SourceAdapter],
@@ -121,8 +133,8 @@ def _run_internal(
             requests_by_source[adapter.name] = requests_by_source.get(adapter.name, 0) + 1
             continue
 
-        counts_requests = hasattr(adapter, "requests_made")
-        base_count = adapter.requests_made if counts_requests else 0
+        base_count = _request_count(adapter)
+        counts_requests = base_count is not None
         total_before_adapter = requests_made
         queries_attempted = 0
         adapter_dead = False
@@ -154,7 +166,8 @@ def _run_internal(
                 # Prefer the adapter's real HTTP count (pagination makes one query
                 # several requests); fall back to one per attempted query.
                 if counts_requests:
-                    requests_made = total_before_adapter + (adapter.requests_made - base_count)
+                    current = _request_count(adapter) or 0
+                    requests_made = total_before_adapter + (current - (base_count or 0))
                 else:
                     requests_made = total_before_adapter + queries_attempted
 

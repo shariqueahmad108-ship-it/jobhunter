@@ -863,7 +863,12 @@ class TestFeedAdapterRegionLocation:
 
     def test_anywhere_is_global_remote(self):
         adapter = FeedAdapter([])
-        loc = adapter.normalize(self._item("Anywhere in the World", country="🇺🇸 United States of America", state="Pennsylvania")).location
+        item = self._item(
+            "Anywhere in the World",
+            country="🇺🇸 United States of America",
+            state="Pennsylvania",
+        )
+        loc = adapter.normalize(item).location
         assert loc.is_remote is True
         assert loc.country is None  # global remote wins over HQ country
 
@@ -879,7 +884,8 @@ class TestFeedAdapterRegionLocation:
 
     def test_explicit_country_field_resolves(self):
         adapter = FeedAdapter([])
-        loc = adapter.normalize(self._item("Somewhere", country="🇺🇸 United States of America")).location
+        item = self._item("Somewhere", country="🇺🇸 United States of America")
+        loc = adapter.normalize(item).location
         assert loc.country == "US"
 
     def test_no_region_location_flag_keeps_empty_location(self):

@@ -19,6 +19,7 @@ from jobhunter.model import (
     SourceFailure,
     derive_content_hash,
     derive_id,
+    term_pattern,
 )
 
 # ---------------------------------------------------------------------------
@@ -436,8 +437,6 @@ class TestIdAndHashTogether:
 # ---------------------------------------------------------------------------
 # term_pattern: symbol-edged terms
 # ---------------------------------------------------------------------------
-
-from jobhunter.model import term_pattern
 
 
 class TestTermPattern:

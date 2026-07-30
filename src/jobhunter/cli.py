@@ -21,6 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
+from .ingest import SourceAdapter
 from .pipeline import run as pipeline_run
 from .pipeline import run_with_snapshot as pipeline_run_with_snapshot
 from .probe import format_probe_result, probe_check, probe_single
@@ -81,7 +82,7 @@ def _stats_path(state_path: Path, slug_suffix: str) -> Path:
     return state_path.parent / filename
 
 
-def _build_adapters(profile: dict) -> list:
+def _build_adapters(profile: dict) -> list[SourceAdapter]:
     """Build the source adapters the PROFILE activates.
 
     ALL activation lives in the unified ``sources:`` block (spec 03):
@@ -96,7 +97,7 @@ def _build_adapters(profile: dict) -> list:
     A source that is enabled but missing its credential warns and is skipped;
     a source absent or enabled=false is never constructed.
     """
-    adapters = []
+    adapters: list[SourceAdapter] = []
     sources = profile.get("sources") or {}
 
     # --- Adzuna -----------------------------------------------------------

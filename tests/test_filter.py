@@ -8,8 +8,15 @@ from __future__ import annotations
 
 from datetime import date
 
-from jobhunter.filter import FilterResult, FilterTally, _title_geo_hint, run
+from jobhunter.filter import (
+    FilterResult,
+    FilterTally,
+    _location_matches_any,
+    _title_geo_hint,
+    run,
+)
 from jobhunter.model import JobListing, Location, Salary, Seniority, Source
+from jobhunter.model import Location as _Loc
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -722,9 +729,6 @@ class TestMultiFilterInteraction:
 # Word-boundary location matching (region-qualified parsed cities)
 # ---------------------------------------------------------------------------
 
-from jobhunter.filter import _location_matches_any
-from jobhunter.model import Location as _Loc
-
 
 def test_location_entry_matches_region_qualified_city():
     loc = _Loc(raw="Sydney Region, NSW", city="Sydney Region", region="NSW", country="AU")
@@ -815,13 +819,17 @@ def test_remote_allowed_country_passes():
 
 def test_remote_unknown_country_kept():
     """Bare 'Remote' may be work-from-anywhere — kept per unknown-data policy."""
-    listing = _listing(id="anywhere", is_remote=True, city=None, country=None, location_raw="Remote")
+    listing = _listing(
+        id="anywhere", is_remote=True, city=None, country=None, location_raw="Remote"
+    )
     result = run([listing], _profile_with_rc(["AU"]), today=TODAY)
     assert len(result.passed) == 1
 
 
 def test_remote_countries_null_means_any():
-    listing = _listing(id="us2", is_remote=True, city=None, country="US", location_raw="Remote (US)")
+    listing = _listing(
+        id="us2", is_remote=True, city=None, country="US", location_raw="Remote (US)"
+    )
     result = run([listing], _profile_with_rc(None), today=TODAY)
     assert len(result.passed) == 1
 

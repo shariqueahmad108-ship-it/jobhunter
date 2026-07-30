@@ -185,9 +185,10 @@ def _parse_atom_items(root: ET.Element) -> list[dict]:
                 link = link_el.get("href", "")
                 break
         if not link:
-            link_el = entry.find(_ns(_ATOM_NS, "link"))
-            if link_el is not None:
-                link = link_el.get("href", "")
+            # Separate name: link_el above is a loop variable of a different type.
+            fallback_el = entry.find(_ns(_ATOM_NS, "link"))
+            if fallback_el is not None:
+                link = fallback_el.get("href", "")
 
         id_el = entry.find(_ns(_ATOM_NS, "id"))
         guid = (id_el.text or link).strip() if id_el is not None else link
