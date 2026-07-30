@@ -106,11 +106,14 @@ def check_credentials(profile: dict, env: Optional[dict] = None) -> list[Check]:
 
     for name, variables in _CREDENTIALS.items():
         cfg = sources.get(name)
-        explicit = cfg is not None and "enabled" in cfg
-        if explicit and not cfg["enabled"]:
-            checks.append(Check("credential", name, SKIP, "not enabled"))
-            continue
-        if not explicit and name not in _DEFAULT_ON:
+        # None = the profile says nothing about this source. Narrowing has to
+        # happen inside the isinstance check: mypy does not carry it through a
+        # boolean stored in a variable.
+        explicit: Optional[bool] = None
+        if isinstance(cfg, dict) and "enabled" in cfg:
+            explicit = bool(cfg["enabled"])
+
+        if explicit is False or (explicit is None and name not in _DEFAULT_ON):
             checks.append(Check("credential", name, SKIP, "not enabled"))
             continue
 
