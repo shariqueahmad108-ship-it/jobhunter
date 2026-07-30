@@ -72,3 +72,21 @@ feed format.
 For tuning and offline testing, `jobhunter replay` re-scores a saved
 run without network calls, which is also useful for verifying that
 your adaptor's output survives the downstream stages unchanged.
+
+**The test suite cannot reach the network.** `tests/conftest.py` blocks
+real sockets, so a test that forgets to mock `httpx` fails with
+`NetworkAccessInTestError` naming the host it tried to reach. Record a
+payload from the live source by hand (or with a throwaway script outside
+the suite), trim it to the shapes you care about, and feed it through a
+mocked client — `tests/test_remoteok.py` is the pattern to copy.
+
+If you genuinely need a test that hits the live source, mark it:
+
+```python
+@pytest.mark.allow_network
+def test_live_board_still_returns_json():
+    ...
+```
+
+CI deselects those with `-m "not allow_network"`, so they document
+reality without making the build depend on a third party being up.

@@ -1049,6 +1049,16 @@ def test_main_propagates_a_failure_code(workdir, monkeypatch, capsys):
     assert exc.value.code == 1
 
 
+def test_version_flag_reports_the_package_version(capsys):
+    """The bug-report template asks for a version; the CLI must be able to give one."""
+    from jobhunter import __version__
+
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args(["--version"])
+    assert exc.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
 def test_parser_requires_a_subcommand(capsys):
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args([])

@@ -45,6 +45,38 @@ export JOOBLE_API_KEY=...                    # free key: https://jooble.org/api/
 The digest lands in `digests/YYYY-MM-DD.md` (plus a `.json` companion).
 `profile.yaml` is git-ignored — your criteria stay out of the repo.
 
+## What a digest looks like
+
+```markdown
+# JobHunter — Run Report
+
+Run at: 2026-07-30
+Sources: greenhouse, remoteok, remotive, feeds
+Requests made: 24
+Ingested: 412 | After dedupe: 388 | Dropped: 351 | New: 9 | Previously shown: 4
+Filter tally: location: 210, seniority: 74, salary: 41, employment: 0,
+keyword: 18, missing required: 0, too old: 8, dismissed: 0
+Active weights: skill_match: 30, seniority_fit: 20, compensation: 20,
+location_fit: 15, company_signal: 10, recency: 5
+
+## New This Run (9)
+
+### #1 `4b1c9f02` — Staff Engineer, Platform at Example Corp
+Score: 84/100 | Location: Remote (AU) | Salary: AUD 210,000–240,000 /year | Posted: 2026-07-29
+Reason: 4 of 5 target skills; exact match: staff (ic); salary above target
+Sources: [greenhouse](https://boards.greenhouse.io/examplecorp/jobs/1)
+
+### #2 `9de4a115` — Engineering Manager, Developer Experience at Sample Inc
+Score: 77/100 | Location: Remote | Salary: not listed | Posted: 2026-07-28
+Reason: exact match: manager (management); remote role
+Sources: [remotive](https://remotive.com/remote-jobs/1)
+Flags: salary unknown, remote scope unclear
+```
+
+Every score is explainable because scoring is a rule-based weighted sum — no
+LLM in the pipeline, so the same inputs always produce the same digest. The
+short id in backticks is what you pass to `jobhunter dismiss`.
+
 ## Commands
 
 | Command | What it does |
@@ -175,11 +207,18 @@ rewrite.
 ## Development
 
 ```bash
-python3 -m pytest -q          # full suite
-ruff check src tests
+make install                  # editable install with dev extras + pre-commit hooks
+make check                    # exactly what CI runs: ruff, SPDX headers, mypy, tests
+make cov                      # tests with coverage, enforcing the floor
 ```
 
-A change to a pipeline stage must add or extend that stage's test module.
+`make` with no target lists everything. The individual gates are `make lint`,
+`make types`, `make test` and `make hooks` if you want them one at a time.
+
+A change to a pipeline stage must add or extend that stage's test module. The
+suite is hermetic — `tests/conftest.py` blocks real sockets, so an adapter test
+that forgets to mock `httpx` fails loudly rather than depending on a live job
+board. See CONTRIBUTING.md for the testing conventions.
 
 ## Status
 

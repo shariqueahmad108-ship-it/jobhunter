@@ -93,6 +93,36 @@ hitting a live job board. A test that genuinely needs the network must be
 marked `@pytest.mark.allow_network` — CI deselects those. A change to a pipeline stage must add or extend that
 stage's test module.
 
+## Testing conventions
+
+The suite is fast (under two seconds) and hermetic. Keep it that way:
+
+- **Never touch the network.** `tests/conftest.py` blocks real sockets;
+  mock `httpx` as `tests/test_remoteok.py` does. A test that must
+  reach a live source is marked `@pytest.mark.allow_network` and is
+  deselected in CI.
+- **Test a stage through its own module.** A change to filtering belongs
+  in `tests/test_filter.py`, not in a CLI test that happens to exercise
+  it.
+- **CLI tests stub the pipeline.** `tests/test_cli_commands.py` replaces
+  `cli.pipeline_run` / `cli.pipeline_run_with_snapshot` with canned
+  results and asserts on exit codes, files written and output. The
+  exception is `replay`, which runs Stages 4-7 for real against a
+  snapshot — offline re-scoring is the feature, so stubbing it would
+  test nothing.
+- **Derive dates from `date.today()`**, never hardcode them. Profiles
+  drop listings older than `max_age_days`, so a fixed `posted_at` makes
+  a passing test fail weeks later.
+- **Build profiles from `specs/profile.example.yaml`** and disable the
+  sources you are not testing, so an exported `ADZUNA_APP_ID` in a
+  developer's shell cannot change the result.
+- **Test across module boundaries where a value changes shape.** Full
+  coverage of both sides of a seam proves nothing about the seam: the
+  digest rendered ids truncated to 8 characters while the filter matched
+  the full 64-character hash, and `dismiss` silently did nothing for
+  every id a human could see. Every module's tests passed. If a value
+  crosses a boundary, test the round trip.
+
 ## Pull requests
 
 - One concern per PR, on its own branch.

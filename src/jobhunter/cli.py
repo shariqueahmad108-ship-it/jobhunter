@@ -20,6 +20,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from . import __version__
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .ingest import SourceAdapter
 from .pipeline import run as pipeline_run
@@ -674,6 +675,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jobhunter",
         description="Personal job-search pipeline — see specs/ for full documentation.",
+    )
+    # Bug reports ask for a version; the tool has to be able to answer.
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"jobhunter {__version__}",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
