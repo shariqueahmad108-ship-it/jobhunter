@@ -16,6 +16,9 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 *.egg-info/
 
 # Loop control

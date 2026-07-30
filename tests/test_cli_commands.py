@@ -1,0 +1,946 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Command-handler tests for the CLI.
+
+tests/test_cli.py covers the pure helpers (`_profile_slug`, `_build_adapters`,
+parser wiring). This module drives each `_cmd_*` handler end to end through
+``build_parser()`` and asserts on exit code, files written and stdout/stderr —
+the surface a user actually touches.
+
+The pipeline itself is stubbed: these tests are about the CLI's own logic
+(path derivation, output formats, state persistence, error handling), and
+Stages 1-7 have their own suites. `replay` and `probe` are the exceptions —
+replay runs Stages 4-7 for real off a snapshot (that is the point of it), and
+probe's network calls are stubbed at the seam.
+
+See: specs/02-functional-spec.md §Stage 7
+     specs/05-operator-tooling.md §5.1-5.3
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+import yaml
+
+from jobhunter import cli
+from jobhunter.model import (
+    JobListing,
+    Location,
+    RunReport,
+    Salary,
+    ScoredResult,
+    Seniority,
+    Source,
+    SourceStat,
+)
+from jobhunter.probe import BoardStatus, ProbeResult
+
+_EXAMPLE_PROFILE = Path(__file__).resolve().parents[1] / "specs" / "profile.example.yaml"
+_TODAY = date.today().isoformat()
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _profile_dict(**output_overrides) -> dict:
+    """The shipped example profile, with every source switched off.
+
+    Sources off keeps these tests independent of the ambient environment: no
+    adapter is constructed, so a developer with ADZUNA_APP_ID exported gets the
+    same result as CI.
+    """
+    data = yaml.safe_load(_EXAMPLE_PROFILE.read_text(encoding="utf-8"))
+    data["sources"] = {"adzuna": {"enabled": False}}
+    if output_overrides:
+        data.setdefault("output", {}).update(output_overrides)
+    return data
+
+
+def _write_profile(path: Path, **output_overrides) -> Path:
+    path.write_text(yaml.safe_dump(_profile_dict(**output_overrides)), encoding="utf-8")
+    return path
+
+
+def _listing(
+    *,
+    lid: str = "a" * 64,
+    title: str = "Senior Software Engineer",
+    company: str = "Acme",
+    remote: bool = True,
+    salary: bool = True,
+    url: str = "https://example.com/job/1",
+) -> JobListing:
+    return JobListing(
+        id=lid,
+        content_hash="h" + lid[1:],
+        title=title,
+        company=company,
+        location=Location(raw="Remote", is_remote=remote, country="AU"),
+        description="Work on distributed systems with TypeScript and AWS.",
+        sources=[Source(name="stub", url=url, source_id=lid[:6])],
+        first_seen_at=_TODAY,
+        salary=Salary(min=200000.0, max=220000.0, currency="AUD", period="year")
+        if salary
+        else None,
+        seniority=Seniority(track="ic", level="senior"),
+        employment="full_time",
+        posted_at=_TODAY,
+    )
+
+
+def _result(rank: int = 1, score: float = 88.0, **listing_kwargs) -> ScoredResult:
+    return ScoredResult(
+        listing=_listing(**listing_kwargs),
+        score=score,
+        components=[],
+        summary_reason="exact match: senior (ic)",
+        rank=rank,
+        unknown_flags=[],
+    )
+
+
+def _report(**kwargs) -> RunReport:
+    defaults = dict(
+        run_at=_TODAY,
+        sources_used=["stub"],
+        requests_made=3,
+        ingested_count=5,
+        after_dedupe=4,
+        source_stats=[SourceStat(name="stub", fetched=5, passed_filter=3, requests=3)],
+    )
+    defaults.update(kwargs)
+    return RunReport(**defaults)
+
+
+def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, results: list[ScoredResult]) -> None:
+    """Replace both pipeline entry points with canned output (no network, no stages)."""
+    report_holder = {"report": None}
+
+    def fake_with_snapshot(profile, adapters, dismissed_ids=None, today=None):
+        report_holder["report"] = _report()
+        return list(results), report_holder["report"], [r.listing for r in results]
+
+    def fake_run(profile, adapters, dismissed_ids=None, today=None):
+        report_holder["report"] = _report()
+        return list(results), report_holder["report"]
+
+    monkeypatch.setattr(cli, "pipeline_run_with_snapshot", fake_with_snapshot)
+    monkeypatch.setattr(cli, "pipeline_run", fake_run)
+
+
+def _run_cli(argv: list[str]) -> int:
+    """Parse argv and dispatch, exactly as main() does minus the sys.exit."""
+    args = cli.build_parser().parse_args(argv)
+    return args.func(args)
+
+
+@pytest.fixture
+def workdir(tmp_path, monkeypatch):
+    """A clean cwd: no fx_rates.yaml, no state, no digests."""
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# _active_source_names / _stats_path
+# ---------------------------------------------------------------------------
+
+
+def test_active_sources_defaults_to_adzuna():
+    """Adzuna has no explicit enable flag: absent config means active."""
+    assert cli._active_source_names({}) == {"adzuna"}
+
+
+def test_active_sources_reads_every_source_block():
+    profile = {
+        "sources": {
+            "adzuna": {"enabled": True},
+            "ats_watchlist": [{"ats": "greenhouse", "slug": "mozilla"}],
+            "feeds": [{"name": "wwr", "url": "https://example.com/f.rss"}],
+            "remotive": {"enabled": True},
+            "remoteok": {"enabled": True},
+            "jooble": {"enabled": True},
+        }
+    }
+    assert cli._active_source_names(profile) == {
+        "adzuna",
+        "ats",
+        "rss",
+        "remotive",
+        "remoteok",
+        "jooble",
+    }
+
+
+def test_active_sources_honours_legacy_queries_watchlist():
+    profile = {
+        "sources": {"adzuna": {"enabled": False}},
+        "queries": {"ats_watchlist": [{"ats": "lever", "slug": "acme"}]},
+    }
+    assert cli._active_source_names(profile) == {"ats"}
+
+
+def test_active_sources_disabled_blocks_are_omitted():
+    profile = {
+        "sources": {
+            "adzuna": {"enabled": False},
+            "remotive": {"enabled": False},
+            "remoteok": {"enabled": False},
+            "jooble": {"enabled": False},
+            "feeds": [],
+            "ats_watchlist": [],
+        }
+    }
+    assert cli._active_source_names(profile) == set()
+
+
+def test_stats_path_default_and_slugged():
+    state = Path("state/state.yaml")
+    assert cli._stats_path(state, "") == Path("state/source_stats.json")
+    assert cli._stats_path(state, "profile-ospo") == Path("state/source_stats-profile-ospo.json")
+
+
+# ---------------------------------------------------------------------------
+# run — happy path and outputs
+# ---------------------------------------------------------------------------
+
+
+def test_run_writes_digest_data_snapshot_state_and_stats(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", format="markdown", data_format="json")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    code = _run_cli(["run", "--profile", "profile.yaml", "--state", "state/state.yaml"])
+
+    assert code == 0
+    digests = workdir / "digests"
+    assert (digests / f"{_TODAY}.md").exists()
+    assert (digests / f"{_TODAY}.json").exists()
+    assert (digests / f"{_TODAY}.raw.json").exists()  # keep_raw default true
+    assert (workdir / "state" / "state.yaml").exists()
+    assert (workdir / "state" / "source_stats.json").exists()
+    out = capsys.readouterr()
+    assert "Senior Software Engineer" in out.out  # digest goes to stdout
+    assert "Snapshot:" in out.err
+
+
+def test_run_state_records_only_the_rendered_slice(workdir, monkeypatch):
+    """Overflow beyond max_shown must stay unseen so it resurfaces next run."""
+    _write_profile(workdir / "profile.yaml", max_shown=1)
+    results = [
+        _result(rank=1, lid="a" * 64),
+        _result(rank=2, lid="b" * 64),
+        _result(rank=3, lid="c" * 64),
+    ]
+    _stub_pipeline(monkeypatch, results)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert [e["id"] for e in state["seen"]] == ["a" * 64]
+
+
+def test_run_html_format_writes_html_and_no_markdown(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", format="html")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+
+    digests = workdir / "digests"
+    assert (digests / f"{_TODAY}.html").exists()
+    assert not (digests / f"{_TODAY}.md").exists()
+    assert "HTML digest:" in capsys.readouterr().err
+
+
+def test_run_both_data_formats_write_json_and_csv(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", data_format="both")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+
+    digests = workdir / "digests"
+    assert (digests / f"{_TODAY}.json").exists()
+    assert (digests / f"{_TODAY}.csv").exists()
+    assert "CSV data file:" in capsys.readouterr().err
+
+
+def test_run_keep_raw_false_writes_no_snapshot(workdir, monkeypatch):
+    _write_profile(workdir / "profile.yaml", keep_raw=False)
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert not (workdir / "digests" / f"{_TODAY}.raw.json").exists()
+
+
+def test_run_output_dir_flag_overrides_default_location(workdir, monkeypatch):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile.yaml", "--output-dir", "out/here"]) == 0
+    assert (workdir / "out" / "here" / f"{_TODAY}.md").exists()
+    assert not (workdir / "digests").exists()
+
+
+def test_run_named_profile_gets_its_own_state_and_digest_names(workdir, monkeypatch):
+    """Two profiles must never share seen-state (spec 03 §multi-profile)."""
+    _write_profile(workdir / "profile-ospo.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile-ospo.yaml"]) == 0
+
+    assert (workdir / "state" / "state-profile-ospo.yaml").exists()
+    assert not (workdir / "state" / "state.yaml").exists()
+    assert (workdir / "digests" / f"{_TODAY}-profile-ospo.md").exists()
+    assert (workdir / "state" / "source_stats-profile-ospo.json").exists()
+
+
+def test_run_explicit_state_path_is_not_slug_rewritten(workdir, monkeypatch):
+    _write_profile(workdir / "profile-ospo.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile-ospo.yaml", "--state", "mine/s.yaml"]) == 0
+    assert (workdir / "mine" / "s.yaml").exists()
+
+
+def test_run_second_run_partitions_previously_seen(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml", show_previously_seen=True)
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    capsys.readouterr()
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+
+    second = capsys.readouterr().out
+    assert "Previously shown: 1" in second
+
+
+def test_run_appends_one_stats_entry_per_run(workdir, monkeypatch):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    _run_cli(["run", "--profile", "profile.yaml"])
+    _run_cli(["run", "--profile", "profile.yaml"])
+
+    stats = json.loads((workdir / "state" / "source_stats.json").read_text())
+    assert len(stats["runs"]) == 2
+
+
+def test_run_counts_shown_per_source_in_stats(workdir, monkeypatch):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result(lid="a" * 64), _result(rank=2, lid="b" * 64)])
+
+    _run_cli(["run", "--profile", "profile.yaml"])
+
+    stats = json.loads((workdir / "state" / "source_stats.json").read_text())
+    stub = [s for s in stats["runs"][0]["sources"] if s["name"] == "stub"][0]
+    assert stub["shown"] == 2
+
+
+# ---------------------------------------------------------------------------
+# run — failure paths
+# ---------------------------------------------------------------------------
+
+
+def test_run_missing_profile_exits_1(workdir, capsys):
+    assert _run_cli(["run", "--profile", "nope.yaml"]) == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_run_invalid_profile_exits_1(workdir, capsys):
+    (workdir / "profile.yaml").write_text("identity: {}\n")
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_run_unsupported_state_schema_exits_1(workdir, capsys):
+    _write_profile(workdir / "profile.yaml")
+    state = workdir / "state" / "state.yaml"
+    state.parent.mkdir()
+    state.write_text("schema_version: 99\n")
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 1
+    assert "Error loading state" in capsys.readouterr().err
+
+
+def test_run_warns_when_fx_rates_are_stale(workdir, monkeypatch, capsys):
+    import time
+
+    _write_profile(workdir / "profile.yaml")
+    fx = workdir / "fx_rates.yaml"
+    fx.write_text("base: AUD\nrates:\n  USD: 1.5\n")
+    old = time.time() - 100 * 86400
+    os.utime(fx, (old, old))
+    _stub_pipeline(monkeypatch, [_result()])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "fx_rates.yaml is 100 days old" in capsys.readouterr().err
+
+
+def test_run_warns_but_succeeds_when_digest_write_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    real_write = Path.write_text
+
+    def failing_write(self, *args, **kwargs):
+        if self.suffix == ".md":
+            raise OSError("disk full")
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not write digest" in capsys.readouterr().err
+
+
+def test_run_warns_but_succeeds_when_state_save_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    def boom(state, path):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(cli, "save_state", boom)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not save state" in capsys.readouterr().err
+
+
+def test_run_warns_but_succeeds_when_stats_save_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    def boom(history, path):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(cli, "save_stats", boom)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not save source stats" in capsys.readouterr().err
+
+
+def test_run_warns_but_succeeds_when_snapshot_write_fails(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    import jobhunter.snapshot as snapshot_mod
+
+    def boom(path, run_at, profile_snapshot, listings):
+        raise OSError("no space")
+
+    monkeypatch.setattr(snapshot_mod, "write_snapshot", boom)
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert "could not write snapshot" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# dismiss / undismiss / dismissed
+# ---------------------------------------------------------------------------
+
+
+def test_dismiss_records_ids_and_reports_each(workdir, capsys):
+    code = _run_cli(["dismiss", "abc123", "def456", "--state", "state/state.yaml"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Dismissed: abc123" in out and "Dismissed: def456" in out
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == ["abc123", "def456"]
+
+
+def test_dismiss_is_idempotent(workdir):
+    _run_cli(["dismiss", "abc123"])
+    _run_cli(["dismiss", "abc123"])
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == ["abc123"]
+
+
+def test_dismiss_bad_state_exits_1(workdir, capsys):
+    state = workdir / "state" / "state.yaml"
+    state.parent.mkdir()
+    state.write_text("schema_version: 99\n")
+    assert _run_cli(["dismiss", "x"]) == 1
+    assert "Error loading state" in capsys.readouterr().err
+
+
+def test_dismiss_save_failure_exits_1(workdir, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "save_state", lambda s, p: (_ for _ in ()).throw(OSError("nope")))
+    assert _run_cli(["dismiss", "x"]) == 1
+    assert "Error saving state" in capsys.readouterr().err
+
+
+def test_undismiss_removes_id(workdir, capsys):
+    _run_cli(["dismiss", "keep-me", "drop-me"])
+    capsys.readouterr()
+
+    assert _run_cli(["undismiss", "drop-me"]) == 0
+    assert "Undismissed: drop-me" in capsys.readouterr().out
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == ["keep-me"]
+
+
+def test_undismiss_bad_state_exits_1(workdir, capsys):
+    state = workdir / "state" / "state.yaml"
+    state.parent.mkdir()
+    state.write_text("schema_version: 99\n")
+    assert _run_cli(["undismiss", "x"]) == 1
+    assert "Error loading state" in capsys.readouterr().err
+
+
+def test_undismiss_save_failure_exits_1(workdir, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "save_state", lambda s, p: (_ for _ in ()).throw(OSError("nope")))
+    assert _run_cli(["undismiss", "x"]) == 1
+    assert "Error saving state" in capsys.readouterr().err
+
+
+def test_dismissed_empty_says_so(workdir, capsys):
+    assert _run_cli(["dismissed"]) == 0
+    assert "No dismissed listings." in capsys.readouterr().out
+
+
+def test_dismissed_lists_ids(workdir, capsys):
+    _run_cli(["dismiss", "id-one", "id-two"])
+    capsys.readouterr()
+
+    assert _run_cli(["dismissed"]) == 0
+    out = capsys.readouterr().out
+    assert "id-one" in out and "id-two" in out
+
+
+def test_dismissed_bad_state_exits_1(workdir, capsys):
+    state = workdir / "state" / "state.yaml"
+    state.parent.mkdir()
+    state.write_text("schema_version: 99\n")
+    assert _run_cli(["dismissed"]) == 1
+    assert "Error loading state" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# sources
+# ---------------------------------------------------------------------------
+
+
+def _write_stats(path: Path, runs: int = 2) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema_version": 1,
+        "runs": [
+            {
+                "run_at": f"2026-07-2{i}",
+                "sources": [
+                    {"name": "stub", "fetched": 10, "passed_filter": 4, "shown": 2},
+                    {"name": "retired-source", "fetched": 1},
+                ],
+            }
+            for i in range(runs)
+        ],
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_sources_with_no_stats_file_says_nothing_recorded(workdir, capsys):
+    assert _run_cli(["sources"]) == 0
+    assert "No source stats recorded yet." in capsys.readouterr().out
+
+
+def test_sources_table_lists_each_source(workdir, capsys):
+    _write_stats(workdir / "state" / "source_stats.json")
+    assert _run_cli(["sources"]) == 0
+    out = capsys.readouterr().out
+    assert "stub" in out and "Fetched" in out
+
+
+def test_sources_marks_sources_absent_from_the_profile_as_inactive(workdir, capsys):
+    _write_profile(workdir / "profile.yaml")
+    _write_stats(workdir / "state" / "source_stats.json")
+
+    assert _run_cli(["sources", "--profile", "profile.yaml"]) == 0
+    assert "inactive" in capsys.readouterr().out
+
+
+def test_sources_json_is_machine_readable(workdir, capsys):
+    _write_stats(workdir / "state" / "source_stats.json")
+    assert _run_cli(["sources", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["schema_version"] == 1 and len(data["runs"]) == 2
+
+
+def test_sources_last_n_limits_runs(workdir, capsys):
+    _write_stats(workdir / "state" / "source_stats.json", runs=3)
+    assert _run_cli(["sources", "--json", "--last", "1"]) == 0
+    assert len(json.loads(capsys.readouterr().out)["runs"]) == 1
+
+
+def test_sources_table_reports_the_run_window(workdir, capsys):
+    _write_stats(workdir / "state" / "source_stats.json", runs=1)
+    assert _run_cli(["sources"]) == 0
+    assert "last 1 run" in capsys.readouterr().out
+
+
+def test_sources_bad_schema_exits_1(workdir, capsys):
+    sp = workdir / "state" / "source_stats.json"
+    sp.parent.mkdir()
+    sp.write_text(json.dumps({"schema_version": 99, "runs": []}))
+
+    assert _run_cli(["sources"]) == 1
+    assert "Error loading source stats" in capsys.readouterr().err
+
+
+def test_sources_unreadable_profile_still_prints_the_table(workdir, capsys):
+    """An invalid profile only costs the inactive marking, not the command."""
+    (workdir / "profile.yaml").write_text("not: a valid profile\n")
+    _write_stats(workdir / "state" / "source_stats.json")
+
+    assert _run_cli(["sources", "--profile", "profile.yaml"]) == 0
+    assert "stub" in capsys.readouterr().out
+
+
+def test_sources_named_profile_reads_slugged_stats(workdir, capsys):
+    _write_profile(workdir / "profile-ospo.yaml")
+    _write_stats(workdir / "state" / "source_stats-profile-ospo.json")
+
+    assert _run_cli(["sources", "--profile", "profile-ospo.yaml"]) == 0
+    assert "stub" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# _print_diff
+# ---------------------------------------------------------------------------
+
+
+def test_print_diff_reports_entered_left_and_moved(capsys):
+    stayed_now = _result(rank=1, score=90.0, lid="s" * 64)
+    stayed_before = _result(rank=3, score=70.0, lid="s" * 64)
+    entered = _result(rank=2, lid="e" * 64)
+    left = _result(rank=1, lid="l" * 64)
+
+    cli._print_diff([stayed_now, entered], [stayed_before, left])
+
+    out = capsys.readouterr().out
+    assert "Entered (now shown, wasn't): 1" in out
+    assert "Left (was shown, not now): 1" in out
+    assert "Moved (rank/score changed): 1" in out
+    assert "was #3/70, now #1/90" in out
+
+
+def test_print_diff_ignores_sub_threshold_score_drift(capsys):
+    now = _result(rank=1, score=90.001, lid="s" * 64)
+    before = _result(rank=1, score=90.0, lid="s" * 64)
+
+    cli._print_diff([now], [before])
+    assert "Moved (rank/score changed): 0" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# replay
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def snapshot(workdir):
+    """A real snapshot file plus the profile that produced it."""
+    from jobhunter.profile import load_profile
+    from jobhunter.snapshot import write_snapshot
+
+    profile_path = _write_profile(workdir / "profile.yaml")
+    profile = load_profile(profile_path)
+    listings = [
+        _listing(lid="a" * 64),
+        _listing(lid="b" * 64, title="PHP Developer", company="Beta"),
+    ]
+    snap_path = workdir / "digests" / f"{_TODAY}.raw.json"
+    write_snapshot(snap_path, _TODAY, profile, listings)
+    return snap_path
+
+
+def test_replay_prints_a_digest_from_a_snapshot(snapshot, capsys):
+    assert _run_cli(["replay", str(snapshot), "--set", "output.display_threshold=0"]) == 0
+    out = capsys.readouterr().out
+    assert "JobHunter — Run Report" in out
+    assert "Senior Software Engineer" in out
+
+
+def test_replay_reports_zero_requests(snapshot, capsys):
+    """Replay is offline by construction — the header must say so."""
+    assert _run_cli(["replay", str(snapshot)]) == 0
+    assert "Requests made: 0" in capsys.readouterr().out
+
+
+def test_replay_out_file_keeps_stdout_clean(snapshot, workdir, capsys):
+    out_file = workdir / "replays" / "one.md"
+    assert _run_cli(["replay", str(snapshot), "--out", str(out_file)]) == 0
+
+    assert out_file.exists()
+    captured = capsys.readouterr()
+    assert "Replay digest:" in captured.err
+    assert "JobHunter — Run Report" not in captured.out
+
+
+def test_replay_warns_when_out_file_cannot_be_written(snapshot, workdir, monkeypatch, capsys):
+    real_write = Path.write_text
+
+    def failing_write(self, *args, **kwargs):
+        if self.name == "one.md":
+            raise OSError("disk full")
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+
+    assert _run_cli(["replay", str(snapshot), "--out", str(workdir / "one.md")]) == 0
+    assert "could not write" in capsys.readouterr().err
+
+
+def test_replay_missing_snapshot_exits_1(workdir, capsys):
+    assert _run_cli(["replay", "nope.raw.json"]) == 1
+    err = capsys.readouterr().err
+    assert "Snapshot file not found" in err
+    assert "keep_raw" in err  # tells the user which knob to set
+
+
+def test_replay_alternate_profile_is_used(snapshot, workdir, capsys):
+    other = _write_profile(workdir / "profile-other.yaml", display_threshold=0, max_shown=1)
+    assert _run_cli(["replay", str(snapshot), "--profile", str(other)]) == 0
+    assert "JobHunter — Run Report" in capsys.readouterr().out
+
+
+def test_replay_invalid_alternate_profile_exits_1(snapshot, workdir, capsys):
+    bad = workdir / "bad.yaml"
+    bad.write_text("identity: {}\n")
+    assert _run_cli(["replay", str(snapshot), "--profile", str(bad)]) == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_replay_set_override_changes_the_shortlist(snapshot, capsys):
+    """display_threshold=100 keeps nothing; =0 keeps the passing listing."""
+    assert _run_cli(["replay", str(snapshot), "--set", "output.display_threshold=0"]) == 0
+    kept = capsys.readouterr().out
+
+    assert _run_cli(["replay", str(snapshot), "--set", "output.display_threshold=100"]) == 0
+    dropped = capsys.readouterr().out
+
+    assert "Senior Software Engineer" in kept
+    assert "Senior Software Engineer" not in dropped
+
+
+def test_replay_diff_reports_the_comparison(snapshot, capsys):
+    assert _run_cli(
+        ["replay", str(snapshot), "--diff", str(snapshot), "--set", "output.display_threshold=0"]
+    ) == 0
+    out = capsys.readouterr().out
+    assert "=== Diff (current vs other) ===" in out
+    assert "Entered (now shown, wasn't): 0" in out  # same file both sides
+
+
+def test_replay_diff_with_explicit_profile(snapshot, workdir, capsys):
+    other = _write_profile(workdir / "profile-other.yaml", display_threshold=0)
+    argv = ["replay", str(snapshot), "--diff", str(snapshot), "--profile", str(other)]
+    assert _run_cli(argv) == 0
+    assert "=== Diff" in capsys.readouterr().out
+
+
+def test_replay_missing_diff_file_exits_1(snapshot, capsys):
+    assert _run_cli(["replay", str(snapshot), "--diff", "nope.json"]) == 1
+    assert "Error loading diff file" in capsys.readouterr().err
+
+
+def test_replay_bad_state_exits_1(snapshot, workdir, capsys):
+    state = workdir / "state" / "state.yaml"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("schema_version: 99\n")
+
+    assert _run_cli(["replay", str(snapshot)]) == 1
+    assert "Error loading state" in capsys.readouterr().err
+
+
+def test_replay_respects_dismissed_ids(snapshot, workdir, capsys):
+    """Replay is read-only but must still honour the dismiss list."""
+    _run_cli(["dismiss", "a" * 64])
+    capsys.readouterr()
+
+    assert _run_cli(["replay", str(snapshot), "--set", "output.display_threshold=0"]) == 0
+    assert "Senior Software Engineer" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# probe
+# ---------------------------------------------------------------------------
+
+
+def test_probe_check_with_target_is_an_error(workdir, capsys):
+    assert _run_cli(["probe", "mozilla", "--check"]) == 1
+    assert "cannot be combined" in capsys.readouterr().err
+
+
+def test_probe_with_neither_target_nor_check_is_an_error(workdir, capsys):
+    assert _run_cli(["probe"]) == 1
+    assert "provide a target" in capsys.readouterr().err
+
+
+def test_probe_check_invalid_profile_exits_1(workdir, capsys):
+    (workdir / "profile.yaml").write_text("identity: {}\n")
+    assert _run_cli(["probe", "--check", "--profile", "profile.yaml"]) == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_probe_check_empty_watchlist_is_not_a_failure(workdir, capsys):
+    _write_profile(workdir / "profile.yaml")  # example profile, sources stripped
+    assert _run_cli(["probe", "--check", "--profile", "profile.yaml"]) == 0
+    assert "No ats_watchlist entries" in capsys.readouterr().out
+
+
+def test_probe_check_all_confirmed_exits_0(workdir, monkeypatch, capsys):
+    profile = _profile_dict()
+    profile["sources"]["ats_watchlist"] = [
+        {"ats": "greenhouse", "slug": "mozilla", "name": "Mozilla"}
+    ]
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))
+
+    def fake_check(watchlist):
+        return [
+            BoardStatus(
+                entry=watchlist[0],
+                result=ProbeResult(
+                    ats="greenhouse",
+                    slug="mozilla",
+                    job_count=56,
+                    oldest_date="2026-04-02",
+                    newest_date="2026-07-24",
+                ),
+                error=None,
+            )
+        ]
+
+    monkeypatch.setattr(cli, "probe_check", fake_check)
+
+    assert _run_cli(["probe", "--check", "--profile", "profile.yaml"]) == 0
+    out = capsys.readouterr().out
+    assert "greenhouse / mozilla — 56 jobs" in out
+
+
+def test_probe_check_dead_board_exits_1(workdir, monkeypatch, capsys):
+    profile = _profile_dict()
+    profile["sources"]["ats_watchlist"] = [{"ats": "lever", "slug": "hashicorp"}]
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))
+
+    monkeypatch.setattr(
+        cli,
+        "probe_check",
+        lambda wl: [BoardStatus(entry=wl[0], result=None, error="404")],
+    )
+
+    assert _run_cli(["probe", "--check", "--profile", "profile.yaml"]) == 1
+    out = capsys.readouterr().out
+    assert "dead: lever/hashicorp" in out
+    assert "Hashicorp" in out  # name derived from the slug when absent
+
+
+def test_probe_check_reads_legacy_queries_watchlist(workdir, monkeypatch, capsys):
+    profile = _profile_dict()
+    profile["queries"]["ats_watchlist"] = [{"ats": "greenhouse", "slug": "acme"}]
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(profile))
+
+    monkeypatch.setattr(
+        cli, "probe_check", lambda wl: [BoardStatus(entry=wl[0], result=None, error=None)]
+    )
+
+    assert _run_cli(["probe", "--check", "--profile", "profile.yaml"]) == 1
+    assert "greenhouse/acme" in capsys.readouterr().out
+
+
+def test_probe_single_unconfirmed_is_not_a_failure(workdir, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "probe_single", lambda target, ats_hint=None: [])
+    assert _run_cli(["probe", "unknown-co"]) == 0
+    assert "not confirmed: unknown-co" in capsys.readouterr().out
+
+
+def test_probe_single_prints_each_hit(workdir, monkeypatch, capsys):
+    hits = [
+        ProbeResult(ats="greenhouse", slug="acme", job_count=3, oldest_date=None, newest_date=None),
+        ProbeResult(ats="lever", slug="acme", job_count=1, oldest_date=None, newest_date=None),
+    ]
+    monkeypatch.setattr(cli, "probe_single", lambda target, ats_hint=None: hits)
+
+    assert _run_cli(["probe", "acme"]) == 0
+    out = capsys.readouterr().out
+    assert "greenhouse / acme — 3 jobs" in out
+    assert "lever / acme — 1 jobs" in out
+
+
+def test_probe_single_passes_the_ats_hint_through(workdir, monkeypatch):
+    seen = {}
+
+    def fake_single(target, ats_hint=None):
+        seen["target"] = target
+        seen["hint"] = ats_hint
+        return []
+
+    monkeypatch.setattr(cli, "probe_single", fake_single)
+
+    assert _run_cli(["probe", "acme", "--ats", "ashby"]) == 0
+    assert seen == {"target": "acme", "hint": "ashby"}
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+
+def test_main_exits_with_the_handler_return_code(workdir, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["jobhunter", "dismissed"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    assert "No dismissed listings." in capsys.readouterr().out
+
+
+def test_main_propagates_a_failure_code(workdir, monkeypatch, capsys):
+    state = workdir / "state" / "state.yaml"
+    state.parent.mkdir()
+    state.write_text("schema_version: 99\n")
+    monkeypatch.setattr("sys.argv", ["jobhunter", "dismissed"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+
+
+def test_parser_requires_a_subcommand(capsys):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([])
+
+
+def test_build_adapters_is_wired_into_run(workdir, monkeypatch):
+    """_cmd_run must build adapters from the profile, not from a hardcoded list."""
+    called = {}
+
+    def fake_build(profile):
+        called["yes"] = True
+        return []
+
+    _write_profile(workdir / "profile.yaml")
+    monkeypatch.setattr(cli, "_build_adapters", fake_build)
+    _stub_pipeline(monkeypatch, [])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert called == {"yes": True}
+
+
+def test_run_with_no_results_still_writes_a_digest(workdir, monkeypatch):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [])
+
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    assert (workdir / "digests" / f"{_TODAY}.md").exists()
+
+
+def test_patch_dict_env_does_not_leak_adzuna_creds(workdir, monkeypatch):
+    """Guard: sources.adzuna.enabled=false must win over an exported credential."""
+    with patch.dict(os.environ, {"ADZUNA_APP_ID": "x", "ADZUNA_APP_KEY": "y"}):
+        adapters = cli._build_adapters(_profile_dict())
+    assert adapters == []
