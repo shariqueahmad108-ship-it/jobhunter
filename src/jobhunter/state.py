@@ -15,6 +15,8 @@ See: specs/02-functional-spec.md §Stage 7 (Seen-state, Dismissals)
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from pathlib import Path
 
 import yaml
@@ -22,6 +24,58 @@ import yaml
 from jobhunter.model import RunState, ScoredResult, SeenEntry
 
 _SCHEMA_VERSION = 1
+
+# The digest renders ids truncated to 8 characters (digest._short_id), so the
+# only id a user can see is a prefix. Accept prefixes here or `dismiss` is a
+# no-op for every id a human could actually type.
+MIN_ID_PREFIX = 6
+_FULL_ID = re.compile(r"^[0-9a-f]{64}$")
+
+
+class IdError(ValueError):
+    """A dismiss/undismiss id that is too short, unknown, or ambiguous."""
+
+
+def resolve_listing_id(candidate: str, known_ids: Iterable[str]) -> str:
+    """Resolve a full id or a unique short prefix to a full listing id.
+
+    Args:
+        candidate: What the user typed — a full 64-char hash or the truncated
+                   form the digest shows.
+        known_ids: The ids the candidate may refer to (seen + dismissed).
+
+    Raises:
+        IdError: prefix shorter than MIN_ID_PREFIX, no match, or ambiguous.
+
+    A full 64-hex-char id is accepted even when absent from known_ids: scripts
+    read full ids from the .json digest, which may name a listing this state
+    file has never recorded.
+    """
+    cand = candidate.strip().lower()
+    known = list(known_ids)
+
+    if cand in known:
+        return cand
+    if _FULL_ID.match(cand):
+        return cand
+    if len(cand) < MIN_ID_PREFIX:
+        raise IdError(
+            f"id {candidate!r} is too short — give at least {MIN_ID_PREFIX} characters "
+            "(the digest shows 8)"
+        )
+
+    matches = sorted({k for k in known if k.startswith(cand)})
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise IdError(f"id {candidate!r} matches no listing in the state file")
+    shown = ", ".join(m[:12] for m in matches)
+    raise IdError(f"id {candidate!r} is ambiguous — matches {len(matches)}: {shown}")
+
+
+def known_ids(state: RunState) -> list[str]:
+    """Every id this state file knows: shown before, or already dismissed."""
+    return [e.id for e in state.seen] + list(state.dismissed_ids)
 
 
 def load_state(path: str | Path) -> RunState:

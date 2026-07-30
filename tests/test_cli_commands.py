@@ -445,20 +445,21 @@ def test_run_warns_but_succeeds_when_snapshot_write_fails(workdir, monkeypatch, 
 
 
 def test_dismiss_records_ids_and_reports_each(workdir, capsys):
-    code = _run_cli(["dismiss", "abc123", "def456", "--state", "state/state.yaml"])
+    a, b = "a" * 64, "b" * 64
+    code = _run_cli(["dismiss", a, b, "--state", "state/state.yaml"])
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "Dismissed: abc123" in out and "Dismissed: def456" in out
+    assert f"Dismissed: {a}" in out and f"Dismissed: {b}" in out
     state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
-    assert state["dismissed_ids"] == ["abc123", "def456"]
+    assert state["dismissed_ids"] == [a, b]
 
 
 def test_dismiss_is_idempotent(workdir):
-    _run_cli(["dismiss", "abc123"])
-    _run_cli(["dismiss", "abc123"])
+    _run_cli(["dismiss", "a" * 64])
+    _run_cli(["dismiss", "a" * 64])
     state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
-    assert state["dismissed_ids"] == ["abc123"]
+    assert state["dismissed_ids"] == ["a" * 64]
 
 
 def test_dismiss_bad_state_exits_1(workdir, capsys):
@@ -471,31 +472,33 @@ def test_dismiss_bad_state_exits_1(workdir, capsys):
 
 def test_dismiss_save_failure_exits_1(workdir, monkeypatch, capsys):
     monkeypatch.setattr(cli, "save_state", lambda s, p: (_ for _ in ()).throw(OSError("nope")))
-    assert _run_cli(["dismiss", "x"]) == 1
+    assert _run_cli(["dismiss", "a" * 64]) == 1
     assert "Error saving state" in capsys.readouterr().err
 
 
 def test_undismiss_removes_id(workdir, capsys):
-    _run_cli(["dismiss", "keep-me", "drop-me"])
+    keep, drop = "c" * 64, "d" * 64
+    _run_cli(["dismiss", keep, drop])
     capsys.readouterr()
 
-    assert _run_cli(["undismiss", "drop-me"]) == 0
-    assert "Undismissed: drop-me" in capsys.readouterr().out
+    assert _run_cli(["undismiss", drop]) == 0
+    assert f"Undismissed: {drop}" in capsys.readouterr().out
     state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
-    assert state["dismissed_ids"] == ["keep-me"]
+    assert state["dismissed_ids"] == [keep]
 
 
 def test_undismiss_bad_state_exits_1(workdir, capsys):
     state = workdir / "state" / "state.yaml"
     state.parent.mkdir()
     state.write_text("schema_version: 99\n")
-    assert _run_cli(["undismiss", "x"]) == 1
+    assert _run_cli(["undismiss", "a" * 64]) == 1
     assert "Error loading state" in capsys.readouterr().err
 
 
 def test_undismiss_save_failure_exits_1(workdir, monkeypatch, capsys):
+    _run_cli(["dismiss", "a" * 64])  # must be dismissed before it can be undismissed
     monkeypatch.setattr(cli, "save_state", lambda s, p: (_ for _ in ()).throw(OSError("nope")))
-    assert _run_cli(["undismiss", "x"]) == 1
+    assert _run_cli(["undismiss", "a" * 64]) == 1
     assert "Error saving state" in capsys.readouterr().err
 
 
@@ -505,12 +508,13 @@ def test_dismissed_empty_says_so(workdir, capsys):
 
 
 def test_dismissed_lists_ids(workdir, capsys):
-    _run_cli(["dismiss", "id-one", "id-two"])
+    one, two = "1" * 64, "2" * 64
+    _run_cli(["dismiss", one, two])
     capsys.readouterr()
 
     assert _run_cli(["dismissed"]) == 0
     out = capsys.readouterr().out
-    assert "id-one" in out and "id-two" in out
+    assert one in out and two in out
 
 
 def test_dismissed_bad_state_exits_1(workdir, capsys):
@@ -519,6 +523,141 @@ def test_dismissed_bad_state_exits_1(workdir, capsys):
     state.write_text("schema_version: 99\n")
     assert _run_cli(["dismissed"]) == 1
     assert "Error loading state" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# dismiss — the digest-to-dismiss round trip
+#
+# The bug this section exists for: the digest renders ids truncated to 8 chars
+# (digest._short_id), the filter matches on the full 64-char hash, and dismiss
+# used to store whatever string it was handed. Every unit test used the same
+# invented id on both sides of that seam, so `dismiss <what the user can see>`
+# was a silent no-op that 1,282 passing tests never noticed.
+# ---------------------------------------------------------------------------
+
+
+def _id_from_digest(text: str) -> str:
+    """Pull the short id out of a rendered digest exactly as a user would."""
+    import re
+
+    match = re.search(r"### #\d+ `([0-9a-f]+)`", text)
+    assert match, f"no listing id found in digest:\n{text[:400]}"
+    return match.group(1)
+
+
+def test_dismissing_the_id_shown_in_the_digest_actually_drops_the_listing(
+    workdir, monkeypatch, capsys
+):
+    """THE acceptance criterion: copy an id out of the digest, dismiss it, it's gone."""
+    from datetime import date
+
+    from jobhunter.filter import run as filter_run
+    from jobhunter.profile import load_profile
+
+    listing = _listing(lid="0" + "f" * 63)
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result(lid="0" + "f" * 63)])
+    assert _run_cli(["run", "--profile", "profile.yaml"]) == 0
+    digest = capsys.readouterr().out
+
+    short_id = _id_from_digest(digest)
+    assert len(short_id) == 8  # what the user can see, and all they can see
+
+    assert _run_cli(["dismiss", short_id]) == 0
+
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == [listing.id]  # full id stored, not the prefix
+
+    profile = load_profile(workdir / "profile.yaml")
+    profile["hard_requirements"]["fx_rates"] = {}
+    result = filter_run(
+        [listing], profile, dismissed_ids=set(state["dismissed_ids"]), today=date.today()
+    )
+    assert result.passed == []
+    assert result.tally.dismissed == 1
+
+
+def test_dismiss_echoes_the_full_id_it_resolved_to(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result(lid="0" + "f" * 63)])
+    _run_cli(["run", "--profile", "profile.yaml"])
+    capsys.readouterr()
+
+    assert _run_cli(["dismiss", "0fffffff"]) == 0
+    out = capsys.readouterr().out
+    assert "0" + "f" * 63 in out
+    assert "(matched 0fffffff)" in out
+
+
+def test_dismiss_unknown_prefix_is_an_error_not_a_silent_store(workdir, capsys):
+    assert _run_cli(["dismiss", "deadbeef"]) == 1
+    err = capsys.readouterr().err
+    assert "matches no listing" in err
+    assert not (workdir / "state" / "state.yaml").exists()  # nothing written
+
+
+def test_dismiss_rejects_an_id_too_short_to_be_unique(workdir, capsys):
+    assert _run_cli(["dismiss", "abc"]) == 1
+    assert "too short" in capsys.readouterr().err
+
+
+def test_dismiss_ambiguous_prefix_lists_the_candidates(workdir, monkeypatch, capsys):
+    _write_profile(workdir / "profile.yaml")
+    first, second = "abcdef" + "1" * 58, "abcdef" + "2" * 58
+    _stub_pipeline(monkeypatch, [_result(lid=first), _result(rank=2, lid=second)])
+    _run_cli(["run", "--profile", "profile.yaml"])
+    capsys.readouterr()
+
+    assert _run_cli(["dismiss", "abcdef"]) == 1
+    err = capsys.readouterr().err
+    assert "ambiguous" in err and "matches 2" in err
+
+
+def test_dismiss_batch_is_all_or_nothing(workdir, monkeypatch, capsys):
+    """A typo in the second id must not leave the first one half-applied."""
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result(lid="0" + "f" * 63)])
+    _run_cli(["run", "--profile", "profile.yaml"])
+    capsys.readouterr()
+
+    assert _run_cli(["dismiss", "0fffffff", "deadbeef"]) == 1
+
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == []
+
+
+def test_dismiss_accepts_a_full_id_from_the_json_digest(workdir, capsys):
+    """Scripts read full ids from the .json companion; those must still work."""
+    assert _run_cli(["dismiss", "9" * 64]) == 0
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == ["9" * 64]
+
+
+def test_undismiss_accepts_the_short_id(workdir, capsys):
+    full = "0" + "f" * 63
+    _run_cli(["dismiss", full])
+    capsys.readouterr()
+
+    assert _run_cli(["undismiss", "0fffffff"]) == 0
+    assert f"Undismissed: {full}" in capsys.readouterr().out
+    state = yaml.safe_load((workdir / "state" / "state.yaml").read_text())
+    assert state["dismissed_ids"] == []
+
+
+def test_undismiss_something_never_dismissed_is_an_error(workdir, capsys):
+    _run_cli(["dismiss", "a" * 64])
+    capsys.readouterr()
+
+    assert _run_cli(["undismiss", "b" * 64]) == 1
+    assert "not currently dismissed" in capsys.readouterr().err
+
+
+def test_undismiss_unknown_prefix_is_an_error(workdir, capsys):
+    _run_cli(["dismiss", "a" * 64])
+    capsys.readouterr()
+
+    assert _run_cli(["undismiss", "beefbeef"]) == 1
+    assert "matches no listing" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

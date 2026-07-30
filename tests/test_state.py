@@ -25,9 +25,12 @@ from jobhunter.model import (
     Source,
 )
 from jobhunter.state import (
+    IdError,
     dismiss_ids,
+    known_ids,
     load_state,
     partition_results,
+    resolve_listing_id,
     save_state,
     undismiss_id,
     update_state,
@@ -344,3 +347,78 @@ class TestDismissWorkflow:
         reloaded = load_state(path)
         assert "id-alpha" not in reloaded.dismissed_ids
         assert "id-beta" in reloaded.dismissed_ids
+
+
+# ---------------------------------------------------------------------------
+# Short-id resolution
+#
+# The digest shows ids truncated to 8 characters, so a prefix is the only id a
+# user can type. See specs/02-functional-spec.md §Stage 7 (Dismissals).
+# ---------------------------------------------------------------------------
+
+_A = "a" * 64
+_B = "b" * 64
+_SHARED_1 = "abcdef" + "1" * 58
+_SHARED_2 = "abcdef" + "2" * 58
+
+
+def test_resolve_exact_id_passes_through():
+    assert resolve_listing_id(_A, [_A, _B]) == _A
+
+
+def test_resolve_unique_prefix_returns_the_full_id():
+    assert resolve_listing_id("aaaaaaaa", [_A, _B]) == _A
+
+
+def test_resolve_is_case_insensitive_and_strips_whitespace():
+    assert resolve_listing_id("  AAAAAAAA  ", [_A]) == _A
+
+
+def test_resolve_accepts_an_unknown_full_hash():
+    """Full ids come from the .json digest, which can name a listing state never saw."""
+    assert resolve_listing_id("9" * 64, []) == "9" * 64
+
+
+def test_resolve_rejects_a_prefix_below_the_minimum():
+    with pytest.raises(IdError, match="too short"):
+        resolve_listing_id("abc", [_A])
+
+
+def test_resolve_rejects_an_unknown_prefix():
+    with pytest.raises(IdError, match="matches no listing"):
+        resolve_listing_id("deadbeef", [_A, _B])
+
+
+def test_resolve_rejects_an_ambiguous_prefix_and_names_the_candidates():
+    with pytest.raises(IdError, match="ambiguous"):
+        resolve_listing_id("abcdef", [_SHARED_1, _SHARED_2])
+
+
+def test_resolve_ambiguity_report_truncates_the_candidates():
+    try:
+        resolve_listing_id("abcdef", [_SHARED_1, _SHARED_2])
+    except IdError as e:
+        message = str(e)
+    assert "matches 2" in message
+    assert "abcdef111111" in message
+    assert _SHARED_1 not in message  # 12 chars is enough to disambiguate by eye
+
+
+def test_resolve_prefers_an_exact_match_over_prefix_search():
+    """A short id that is itself a known id (test fixtures do this) is taken as-is."""
+    assert resolve_listing_id("short", ["short", "shorter"]) == "short"
+
+
+def test_known_ids_spans_seen_and_dismissed():
+    state = RunState(
+        schema_version=1,
+        seen=[SeenEntry(id=_A, content_hash="h", last_shown_at="2026-07-30")],
+        dismissed_ids=[_B],
+    )
+    assert known_ids(state) == [_A, _B]
+
+
+def test_dismissed_id_can_still_be_resolved_by_prefix():
+    """Undismissing needs the same prefix resolution as dismissing."""
+    state = RunState(schema_version=1, dismissed_ids=[_A])
+    assert resolve_listing_id("aaaaaaaa", state.dismissed_ids) == _A

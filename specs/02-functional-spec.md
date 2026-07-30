@@ -260,12 +260,26 @@ Produce the run's output as a human-readable digest plus a machine-readable file
 - **Dismissals (CLI):** `jobhunter dismiss <id> [<id>…]` appends ids to the dismissed set;
   `jobhunter undismiss <id>` reverses it; `jobhunter dismissed` lists them. Dismissed ids never
   appear in either digest section again (enforced at Stage 4).
+- **Id resolution:** the digest renders ids in **short form**, so a prefix is the only id a user
+  can copy. `dismiss` and `undismiss` therefore accept either a full id or a unique prefix of at
+  least 6 characters, and **store the resolved full id** — the dismissed set is always full ids.
+  A prefix that matches nothing, or more than one id, is an error naming the candidates: an id
+  the user typed is never accepted-and-ignored. A batch resolves entirely before anything is
+  written, so one bad id in a list applies none of them. A full 64-hex id is accepted even when
+  the state file has never seen it (scripts read full ids from the `.json` digest).
+  `dismiss` resolves against ids previously shown or already dismissed; `undismiss` resolves
+  against the dismissed set only.
 
 **Acceptance criteria**
 - Every digest row contains all fields listed above; no row omits its id, score, or reason.
 - Re-running immediately produces "0 new" **and** the prior listings still visible under "Previously shown" (when enabled).
 - A fixture listing whose salary changes between runs re-appears as new; one whose only change is a new source link does not.
 - `jobhunter dismiss <id>` removes that listing from all future digests; `undismiss` restores eligibility.
+- **The id shown in the digest is sufficient to dismiss:** taking a listing id from rendered
+  digest output and passing it to `dismiss` drops that listing at Stage 4 on the next run. This
+  is verified across the render→dismiss→filter boundary, not per-module — the short/full id
+  mismatch this criterion exists for passed every single-module test.
+- `dismiss` on an unknown or ambiguous id exits non-zero and writes nothing.
 - The data file round-trips: it can be re-loaded without loss of any scored field.
 
 ---

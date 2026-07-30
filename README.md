@@ -50,8 +50,8 @@ The digest lands in `digests/YYYY-MM-DD.md` (plus a `.json` companion).
 | Command | What it does |
 |---|---|
 | `jobhunter run` | The pipeline: ingest → normalize → dedupe → filter → score → rank → digest. |
-| `jobhunter dismiss <id> [<id>...]` | Permanently hide listings from future digests. |
-| `jobhunter undismiss <id>` | Restore a dismissed listing. |
+| `jobhunter dismiss <id> [<id>...]` | Permanently hide listings from future digests. The short id shown in the digest is enough. |
+| `jobhunter undismiss <id>` | Restore a dismissed listing (short id also fine). |
 | `jobhunter dismissed` | List currently dismissed ids. |
 | `jobhunter sources [--last N] [--json]` | Per-source contribution stats across runs — which sources actually earn their requests. |
 | `jobhunter replay RUN-FILE [--set K=V] [--diff OTHER]` | Re-score a saved run offline, with no network calls. |

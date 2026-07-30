@@ -34,9 +34,12 @@ from .profile import (
 )
 from .source_stats import StatsRun, append_run, format_json, format_table, load_stats, save_stats
 from .state import (
+    IdError,
     dismiss_ids,
+    known_ids,
     load_state,
     partition_results,
+    resolve_listing_id,
     save_state,
     undismiss_id,
     update_state,
@@ -348,15 +351,34 @@ def _cmd_dismiss(args: argparse.Namespace) -> int:
         print(f"Error loading state: {e}", file=sys.stderr)
         return 1
 
-    state = dismiss_ids(state, list(args.ids))
+    # The digest only ever shows an 8-char prefix, so that is what a user
+    # copies. Resolve every id BEFORE writing anything: a batch either applies
+    # whole or not at all, and an id that matches nothing is an error rather
+    # than a silently-stored string that never drops a listing.
+    candidates = known_ids(state)
+    resolved: list[str] = []
+    for raw in args.ids:
+        try:
+            resolved.append(resolve_listing_id(raw, candidates))
+        except IdError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            print(
+                "Ids come from a digest — run `jobhunter run` first, "
+                "or paste the full id from the .json digest.",
+                file=sys.stderr,
+            )
+            return 1
+
+    state = dismiss_ids(state, resolved)
     try:
         save_state(state, state_path)
     except OSError as e:
         print(f"Error saving state: {e}", file=sys.stderr)
         return 1
 
-    for lid in args.ids:
-        print(f"Dismissed: {lid}")
+    for raw, lid in zip(args.ids, resolved):
+        suffix = "" if raw.strip().lower() == lid else f" (matched {raw})"
+        print(f"Dismissed: {lid}{suffix}")
     return 0
 
 
@@ -368,14 +390,26 @@ def _cmd_undismiss(args: argparse.Namespace) -> int:
         print(f"Error loading state: {e}", file=sys.stderr)
         return 1
 
-    state = undismiss_id(state, args.id)
+    # Resolve against the dismissed set only: undismissing something that was
+    # never dismissed is a typo, not a no-op to shrug at.
+    try:
+        lid = resolve_listing_id(args.id, state.dismissed_ids)
+    except IdError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("Run `jobhunter dismissed` to see what is currently dismissed.", file=sys.stderr)
+        return 1
+    if lid not in state.dismissed_ids:
+        print(f"Error: id {args.id!r} is not currently dismissed", file=sys.stderr)
+        return 1
+
+    state = undismiss_id(state, lid)
     try:
         save_state(state, state_path)
     except OSError as e:
         print(f"Error saving state: {e}", file=sys.stderr)
         return 1
 
-    print(f"Undismissed: {args.id}")
+    print(f"Undismissed: {lid}")
     return 0
 
 
@@ -666,7 +700,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.set_defaults(func=_cmd_run)
 
     dismiss_p = sub.add_parser("dismiss", help="Permanently hide listings from future digests.")
-    dismiss_p.add_argument("ids", nargs="+", metavar="ID", help="Listing id(s) to dismiss.")
+    dismiss_p.add_argument(
+        "ids",
+        nargs="+",
+        metavar="ID",
+        help="Listing id(s) to dismiss — the short id shown in the digest is enough.",
+    )
     dismiss_p.add_argument(
         "--state",
         default=str(_DEFAULT_STATE),
@@ -676,7 +715,11 @@ def build_parser() -> argparse.ArgumentParser:
     dismiss_p.set_defaults(func=_cmd_dismiss)
 
     undismiss_p = sub.add_parser("undismiss", help="Restore a previously dismissed listing.")
-    undismiss_p.add_argument("id", metavar="ID", help="Listing id to undismiss.")
+    undismiss_p.add_argument(
+        "id",
+        metavar="ID",
+        help="Listing id to undismiss (short id from `jobhunter dismissed` is enough).",
+    )
     undismiss_p.add_argument(
         "--state",
         default=str(_DEFAULT_STATE),
