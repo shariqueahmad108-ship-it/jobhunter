@@ -59,7 +59,7 @@ jobs:
       # trains you to ignore it; updating a single open issue does not.
       - name: Open or update the canary issue
         if: steps.doctor.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -111,7 +111,7 @@ jobs:
 
       - name: Close the canary issue when everything is healthy
         if: steps.doctor.outcome == 'success'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const TITLE = 'Source canary: a source or board is failing';
