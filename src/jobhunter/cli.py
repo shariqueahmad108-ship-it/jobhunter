@@ -15,6 +15,7 @@ See: specs/02-functional-spec.md §Stage 7 (dismissal workflow)
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from datetime import date
@@ -23,6 +24,7 @@ from pathlib import Path
 from . import __version__, doctor
 from .digest import render_csv_data, render_html, render_json_data, render_markdown
 from .ingest import SourceAdapter
+from .model import SourceStat
 from .pipeline import run as pipeline_run
 from .pipeline import run_with_snapshot as pipeline_run_with_snapshot
 from .probe import format_probe_result, probe_check, probe_single
@@ -48,6 +50,52 @@ from .state import (
 
 _DEFAULT_PROFILE = Path("profile.yaml")
 _DEFAULT_STATE = Path("state/state.yaml")
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging(verbose: bool) -> None:
+    """Point the CLI's logger at stderr: INFO with -v, WARNING (today's
+    default) otherwise.
+
+    Called from _cmd_run rather than main() — main() is a two-line
+    parse-and-dispatch shim, and the test suite calls args.func(args)
+    directly without going through it, so configuring there would leave
+    every test running with no handler attached at all.
+
+    Re-configures (clearing any handler this logger already has) rather
+    than checking-then-adding, so repeated calls in the same process —
+    every test in this suite, for instance — don't stack up duplicate
+    handlers and print each line twice.
+    """
+    logger.handlers.clear()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO if verbose else logging.WARNING)
+    logger.propagate = False
+
+
+def _plural(n: int) -> str:
+    return "" if n == 1 else "s"
+
+
+def _log_source_progress(source_stats: list[SourceStat]) -> None:
+    """One INFO line per source explaining what it did this run — the four
+    cases from the issue (ok, failed, filtered out, and the zero-fetched
+    case) are otherwise indistinguishable from the digest header's
+    aggregate counts alone. Only visible with -v; see _configure_logging.
+    """
+    for stat in source_stats:
+        requests = f"{stat.requests} request{_plural(stat.requests)}"
+        if stat.failed:
+            logger.info("%s: 0 fetched — %s", stat.name, stat.error)
+        elif stat.fetched and not stat.passed_filter:
+            logger.info(
+                "%s: %d fetched (%s) — all filtered out", stat.name, stat.fetched, requests
+            )
+        else:
+            logger.info("%s: %d fetched (%s)", stat.name, stat.fetched, requests)
 
 
 def _active_source_names(profile: dict) -> set[str]:
@@ -182,6 +230,7 @@ def _profile_slug(profile_path: Path) -> str:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    _configure_logging(args.verbose)
     profile_path = Path(args.profile)
     state_path = Path(args.state)
     slug_suffix = _profile_slug(profile_path)
@@ -221,6 +270,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         results, report = pipeline_run(profile, adapters, dismissed_ids=dismissed)
         pre_filter = None
+
+    _log_source_progress(report.source_stats)
 
     if _fx_age is not None and _fx_age >= _FX_STALE_DAYS:
         print(
@@ -742,6 +793,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         dest="output_dir",
         help="Directory for digest and data-file output (default: digests/ peer to state dir)",
+    )
+    run_p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Explain what each source did this run (fetched/failed/filtered) on stderr",
     )
     run_p.set_defaults(func=_cmd_run)
 

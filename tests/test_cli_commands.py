@@ -118,16 +118,20 @@ def _report(**kwargs) -> RunReport:
     return RunReport(**defaults)
 
 
-def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, results: list[ScoredResult]) -> None:
+def _stub_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    results: list[ScoredResult],
+    report: RunReport | None = None,
+) -> None:
     """Replace both pipeline entry points with canned output (no network, no stages)."""
     report_holder = {"report": None}
 
     def fake_with_snapshot(profile, adapters, dismissed_ids=None, today=None):
-        report_holder["report"] = _report()
+        report_holder["report"] = report if report is not None else _report()
         return list(results), report_holder["report"], [r.listing for r in results]
 
     def fake_run(profile, adapters, dismissed_ids=None, today=None):
-        report_holder["report"] = _report()
+        report_holder["report"] = report if report is not None else _report()
         return list(results), report_holder["report"]
 
     monkeypatch.setattr(cli, "pipeline_run_with_snapshot", fake_with_snapshot)
@@ -339,6 +343,128 @@ def test_run_counts_shown_per_source_in_stats(workdir, monkeypatch):
     stats = json.loads((workdir / "state" / "source_stats.json").read_text())
     stub = [s for s in stats["runs"][0]["sources"] if s["name"] == "stub"][0]
     assert stub["shown"] == 2
+
+
+# ---------------------------------------------------------------------------
+# run — verbose per-source progress (-v / --verbose)
+# ---------------------------------------------------------------------------
+
+
+def test_run_verbose_explains_a_failed_source(workdir, monkeypatch, capsys):
+    """A source that errored out (dead endpoint, rate limit, ...) gets its own line."""
+    report = _report(
+        source_stats=[
+            SourceStat(
+                name="remotive",
+                fetched=0,
+                requests=1,
+                failed=True,
+                error="Client error '429 Too Many Requests' for url 'https://remotive.example/api'",
+            )
+        ]
+    )
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()], report=report)
+
+    _run_cli(["run", "--profile", "profile.yaml", "--verbose"])
+
+    err = capsys.readouterr().err
+    assert "remotive: 0 fetched" in err
+    assert "429" in err
+
+
+def test_run_verbose_explains_a_fully_filtered_source(workdir, monkeypatch, capsys):
+    """A source that fetched listings but none survived Stage 4 says so, not just '0'."""
+    report = _report(
+        source_stats=[SourceStat(name="rss", fetched=12, passed_filter=0, requests=1)]
+    )
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()], report=report)
+
+    _run_cli(["run", "--profile", "profile.yaml", "--verbose"])
+
+    err = capsys.readouterr().err
+    assert "rss: 12 fetched" in err
+    assert "filtered out" in err
+
+
+def test_run_verbose_shows_a_healthy_source_too(workdir, monkeypatch, capsys):
+    report = _report(
+        source_stats=[SourceStat(name="greenhouse", fetched=56, passed_filter=10, requests=1)]
+    )
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()], report=report)
+
+    _run_cli(["run", "--profile", "profile.yaml", "--verbose"])
+
+    assert "greenhouse: 56 fetched (1 request)" in capsys.readouterr().err
+
+
+def test_run_without_verbose_flag_prints_no_source_progress(workdir, monkeypatch, capsys):
+    """Default behaviour is unchanged: no per-source lines without -v."""
+    report = _report(
+        source_stats=[
+            SourceStat(name="remotive", fetched=0, requests=1, failed=True, error="boom"),
+        ]
+    )
+    _write_profile(workdir / "profile.yaml")
+    _stub_pipeline(monkeypatch, [_result()], report=report)
+
+    _run_cli(["run", "--profile", "profile.yaml"])
+
+    assert "remotive" not in capsys.readouterr().err
+
+
+def test_run_verbose_flag_does_not_change_stdout(workdir, monkeypatch, capsys):
+    """
+    The digest already renders its own source-stats table (source_stats.py,
+    unrelated to this feature) — so the real acceptance criterion isn't "no
+    source names in stdout", it's that -v changes stderr only. Run twice with
+    the same stubbed report and diff stdout.
+    """
+
+    def make_report():
+        return _report(
+            source_stats=[SourceStat(name="greenhouse", fetched=56, passed_filter=10, requests=1)]
+        )
+
+    _write_profile(workdir / "profile.yaml")
+
+    # Separate --state per run: the same state file would mark run 1's
+    # listing "previously seen" for run 2, changing the digest for a reason
+    # that has nothing to do with -v.
+    _stub_pipeline(monkeypatch, [_result()], report=make_report())
+    _run_cli(["run", "--profile", "profile.yaml", "--state", "state/a.yaml"])
+    without_flag = capsys.readouterr().out
+
+    _stub_pipeline(monkeypatch, [_result()], report=make_report())
+    _run_cli(["run", "--profile", "profile.yaml", "--state", "state/b.yaml", "--verbose"])
+    with_flag = capsys.readouterr().out
+
+    assert with_flag == without_flag
+
+
+def test_source_skipped_without_credential_is_explained(workdir, monkeypatch, capsys):
+    """
+    Case 4 from the issue: a source enabled but missing its credential. This
+    is explained by _build_adapters's existing warning (unconditional, not
+    gated behind -v — the adapter is never even constructed, so there is no
+    SourceStat for _log_source_progress to report on).
+
+    Can't use _write_profile here — it hardcodes sources.adzuna.enabled=False
+    to keep the other run tests independent of the ambient environment, which
+    would take the silent opt-out path instead of the one this test is for.
+    """
+    monkeypatch.delenv("ADZUNA_APP_ID", raising=False)
+    monkeypatch.delenv("ADZUNA_APP_KEY", raising=False)
+    data = yaml.safe_load(_EXAMPLE_PROFILE.read_text(encoding="utf-8"))
+    data["sources"] = {}  # absent adzuna block => enabled by default
+    (workdir / "profile.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    _stub_pipeline(monkeypatch, [_result()])
+
+    _run_cli(["run", "--profile", "profile.yaml"])
+
+    assert "ADZUNA_APP_ID" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,14 @@ pipeline does cites the spec section it implements.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `jobhunter run -v`/`--verbose` logs one line per source to stderr —
+  fetched count, request count, and whether it failed (and why) or fetched
+  something Stage 4 filtered out entirely. Previously the digest header's
+  aggregate counts couldn't distinguish a dead endpoint, a rate limit, an
+  all-filtered source, and a missing credential from one another. See
+  `specs/04-technical-plan.md` §Tech stack (CLI).
 
 ## [0.1.0] — 2026-07-30
 
