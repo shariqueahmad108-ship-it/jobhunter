@@ -92,12 +92,16 @@ site's terms.** Start with Adzuna + a couple of ATS company feeds; add sources a
 - **HTTP:** `httpx` with retries + per-source rate limiting + the `max_requests_per_run` cap.
 - **State:** a local JSON or SQLite file for seen/dismissed state, with `schema_version`.
 - **CLI:** one entry point with sub-commands:
-  `jobhunter run [--profile PATH] [--state PATH] [--output-dir DIR]`,
+  `jobhunter run [--profile PATH] [--state PATH] [--output-dir DIR] [-v|--verbose]`,
   `jobhunter dismiss <id>`, `jobhunter undismiss <id>`, `jobhunter dismissed`,
   `jobhunter sources [--profile P] [--last N] [--json]`,
   `jobhunter replay <run-file> [--profile P] [--set k=v] [--diff <file>] [--out FILE]`,
   `jobhunter probe [URL|slug] [--ats TYPE] [--check] [--profile P]`.
   `--output-dir` overrides the default output directory (`digests/` peer to the state dir).
+  `-v`/`--verbose` logs one line per source to stderr — fetched count, request count, whether
+  it failed (and why), or fetched something that Stage 4 filtered out entirely. The digest
+  header's aggregate counts don't explain a single run's per-source behavior; this does,
+  without touching stdout (still just the pipeable digest).
 - **Multi-profile namespacing:** when a non-default profile file is used (e.g.
   `profile-ospo.yaml`), the run command automatically namespaces all per-profile files by the
   profile's stem: state → `state-ospo.yaml`, source stats → `source_stats-ospo.json`, digest
